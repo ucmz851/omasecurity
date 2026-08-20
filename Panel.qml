@@ -72,13 +72,12 @@ Panel {
   }
 
   function refresh() {
-    if (isScanning) return
+    if (auditProc.running) return
     isScanning = true
     auditProc.running = true
   }
 
   function parseAuditOutput(text) {
-    isScanning = false
     if (!text || text.trim() === "") return
     try {
       var data = JSON.parse(text)
@@ -129,6 +128,9 @@ Panel {
     stderr: StdioCollector {
       waitForEnd: true
       onStreamFinished: if (text) console.log("omasecurity stderr:", text)
+    }
+    onExited: function(exitCode) {
+      root.isScanning = false
     }
   }
 
@@ -241,9 +243,18 @@ Panel {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             iconText: ""
-            tooltipText: "Rescan Now"
-            foreground: root.foreground
+            tooltipText: root.isScanning ? "Scanning system..." : "Rescan Now"
+            foreground: root.isScanning ? Color.accent : root.foreground
+            rotation: 0
             onClicked: root.refresh()
+
+            RotationAnimation on rotation {
+              from: 0
+              to: 360
+              duration: 800
+              loops: Animation.Infinite
+              running: root.isScanning
+            }
           }
         }
 
