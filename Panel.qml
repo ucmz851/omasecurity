@@ -19,7 +19,7 @@ Panel {
 
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
-  readonly property color dim: Qt.darker(foreground, 1.5)
+  readonly property color dim: Qt.darker(foreground, 1.45)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
 
   // Security audit state
@@ -32,17 +32,25 @@ Panel {
   property var audits: []
   property string lastScanTime: ""
   property bool isScanning: false
-  property string selectedCategory: "All"
+  property string selectedCategoryKey: "all"
   property string copiedNotice: ""
 
   property int cursorIndex: 0
 
+  readonly property var categoryList: [
+    { label: "All", key: "all" },
+    { label: "Plugins", key: "Plugin Health" },
+    { label: "Network", key: "Network" },
+    { label: "Auth", key: "Authentication" },
+    { label: "Desktop", key: "Desktop Security" }
+  ]
+
   readonly property var filteredAudits: {
     if (!audits || audits.length === 0) return []
-    if (selectedCategory === "All") return audits
+    if (selectedCategoryKey === "all") return audits
     var out = []
     for (var i = 0; i < audits.length; i++) {
-      if (audits[i].category === selectedCategory) {
+      if (audits[i].category === selectedCategoryKey) {
         out.push(audits[i])
       }
     }
@@ -87,7 +95,14 @@ Panel {
     }
   }
 
-  // Periodic rescan timer: every 15 minutes
+  onOpenedChanged: {
+    if (opened) {
+      Qt.callLater(function() {
+        if (keyCatcher) keyCatcher.forceActiveFocus()
+      })
+    }
+  }
+
   Timer {
     id: scanTimer
     interval: 900000
@@ -98,7 +113,7 @@ Panel {
 
   Timer {
     id: noticeTimer
-    interval: 3000
+    interval: 2500
     running: false
     repeat: false
     onTriggered: root.copiedNotice = ""
@@ -128,7 +143,7 @@ Panel {
     focusTarget: keyCatcher
 
     contentWidth: panel.fittedContentWidth(Style.space(420))
-    contentHeight: panel.fittedContentHeight(Style.space(520))
+    contentHeight: panel.fittedContentHeight(mainLayout.implicitHeight, Style.space(560))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -152,10 +167,13 @@ Panel {
       }
 
       Column {
-        anchors.fill: parent
-        spacing: Style.space(12)
+        id: mainLayout
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        spacing: Style.space(10)
 
-        // ------------------ HERO SECTION ------------------
+        // ------------------ HERO HEADER ------------------
         Item {
           width: parent.width
           implicitHeight: Math.max(heroShield.implicitHeight, heroLabels.implicitHeight)
@@ -258,21 +276,21 @@ Panel {
           spacing: Style.space(6)
 
           Repeater {
-            model: ["All", "Network", "Plugin Health", "Authentication", "Desktop Security"]
+            model: root.categoryList
             delegate: BorderSurface {
-              readonly property bool isSelected: root.selectedCategory === modelData
-              implicitWidth: catLabel.implicitWidth + Style.space(12)
-              implicitHeight: catLabel.implicitHeight + Style.space(6)
+              readonly property bool isSelected: root.selectedCategoryKey === modelData.key
+              implicitWidth: catLabel.implicitWidth + Style.space(16)
+              implicitHeight: catLabel.implicitHeight + Style.space(8)
               radius: Style.cornerRadius
               color: isSelected ? Style.selectedFillFor(root.foreground, root.foreground) : "transparent"
               borderSpec: isSelected
                 ? Border.controlSpec("selected", Color.accent, Color.accent)
-                : Border.controlSpec("normal", root.foreground, Color.accent)
+                : Border.controlSpec("normal", root.dim, Color.accent)
 
               Text {
                 id: catLabel
                 anchors.centerIn: parent
-                text: modelData
+                text: modelData.label
                 color: isSelected ? root.foreground : root.dim
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
@@ -283,7 +301,7 @@ Panel {
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
                 onClicked: {
-                  root.selectedCategory = modelData
+                  root.selectedCategoryKey = modelData.key
                   root.cursorIndex = 0
                 }
               }
@@ -299,15 +317,16 @@ Panel {
         ListView {
           id: auditList
           width: parent.width
-          height: Style.space(290)
+          height: Style.space(310)
           clip: true
           spacing: Style.space(8)
+          boundsBehavior: Flickable.StopAtBounds
           model: root.filteredAudits
 
           delegate: BorderSurface {
             id: itemCard
             width: auditList.width
-            implicitHeight: cardContent.implicitHeight + Style.space(12)
+            implicitHeight: cardColumn.implicitHeight + Style.space(18)
             radius: Style.cornerRadius
 
             readonly property bool hasCursor: root.cursorIndex === index
@@ -320,46 +339,37 @@ Panel {
               : Border.controlSpec("normal", root.dim, cardBorderColor)
 
             Column {
-              id: cardContent
+              id: cardColumn
               anchors.left: parent.left
               anchors.right: parent.right
               anchors.top: parent.top
-              anchors.margins: Style.space(8)
-              spacing: Style.space(4)
+              anchors.margins: Style.space(9)
+              spacing: Style.space(5)
 
-              Row {
+              // Card Title & Score Header
+              Item {
                 width: parent.width
-                spacing: Style.space(8)
+                implicitHeight: Math.max(statusIcon.implicitHeight, titleText.implicitHeight, scoreBadge.implicitHeight)
 
                 Text {
+                  id: statusIcon
+                  anchors.left: parent.left
+                  anchors.verticalCenter: parent.verticalCenter
                   text: itemCard.isPassed ? "" : ""
                   color: itemCard.isPassed ? Color.accent : (modelData.score === 0 ? root.urgent : Color.accent)
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   font.bold: true
-                  anchors.verticalCenter: parent.verticalCenter
                 }
-
-                Text {
-                  text: modelData.title
-                  color: root.foreground
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  font.bold: true
-                  elide: Text.ElideRight
-                  width: parent.width - scoreBadge.implicitWidth - Style.space(32)
-                  anchors.verticalCenter: parent.verticalCenter
-                }
-
-                Item { Layout.fillWidth: true; height: 1 }
 
                 BorderSurface {
                   id: scoreBadge
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
                   implicitWidth: scoreText.implicitWidth + Style.space(8)
                   implicitHeight: scoreText.implicitHeight + Style.space(2)
                   color: "transparent"
                   borderSpec: Border.none()
-                  anchors.verticalCenter: parent.verticalCenter
 
                   Text {
                     id: scoreText
@@ -370,8 +380,24 @@ Panel {
                     font.pixelSize: Style.font.caption
                   }
                 }
+
+                Text {
+                  id: titleText
+                  anchors.left: statusIcon.right
+                  anchors.leftMargin: Style.space(8)
+                  anchors.right: scoreBadge.left
+                  anchors.rightMargin: Style.space(8)
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: modelData.title
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                  elide: Text.ElideRight
+                }
               }
 
+              // Card Description
               Text {
                 width: parent.width
                 text: modelData.description
@@ -398,37 +424,38 @@ Panel {
               BorderSurface {
                 visible: modelData.fix_cmd !== null && modelData.fix_cmd !== undefined && modelData.fix_cmd !== ""
                 width: parent.width
-                implicitHeight: fixRow.implicitHeight + Style.space(6)
+                implicitHeight: Math.max(Style.space(26), fixText.implicitHeight + Style.space(8))
                 color: Style.hoverFillFor(root.foreground, root.foreground)
                 borderSpec: Border.controlSpec("normal", root.dim, Color.accent)
                 radius: Style.cornerRadius
 
-                Row {
-                  id: fixRow
-                  anchors.left: parent.left
-                  anchors.right: parent.right
-                  anchors.verticalCenter: parent.verticalCenter
-                  anchors.margins: Style.space(6)
-                  spacing: Style.space(6)
+                Item {
+                  anchors.fill: parent
+                  anchors.leftMargin: Style.space(8)
+                  anchors.rightMargin: Style.space(4)
 
                   Text {
+                    id: fixText
+                    anchors.left: parent.left
+                    anchors.right: copyBtn.left
+                    anchors.rightMargin: Style.space(6)
+                    anchors.verticalCenter: parent.verticalCenter
                     text: "$ " + (modelData.fix_cmd || "")
                     color: root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
                     font.bold: true
                     elide: Text.ElideRight
-                    width: parent.width - copyBtn.implicitWidth - Style.space(12)
-                    anchors.verticalCenter: parent.verticalCenter
                   }
 
                   PanelActionButton {
                     id: copyBtn
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
                     iconText: ""
                     tooltipText: "Copy Command"
                     foreground: Color.accent
                     onClicked: root.copyToClipboard(modelData.fix_cmd)
-                    anchors.verticalCenter: parent.verticalCenter
                   }
                 }
               }
@@ -436,6 +463,7 @@ Panel {
 
             MouseArea {
               anchors.fill: parent
+              cursorShape: Qt.PointingHandCursor
               onClicked: {
                 root.cursorIndex = index
                 if (modelData.fix_cmd) root.copyToClipboard(modelData.fix_cmd)

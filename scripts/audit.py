@@ -335,7 +335,7 @@ def audit_plugins_code_health():
     ]
 
     for plugin in plugins_dir.iterdir():
-        if not plugin.is_dir() or plugin.name.startswith("."):
+        if not plugin.is_dir() or plugin.name.startswith(".") or plugin.name in ["omasecurity", "local.omasecurity"]:
             continue
         scanned_count += 1
 
