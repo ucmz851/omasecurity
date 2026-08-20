@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-OmaSecurity Audit Engine
-Performs fast, non-blocking local security & code health checks for Omarchy Quattro shell.
+OmaSecurity Comprehensive Audit Engine
+Performs fast, non-blocking, deep security & plugin code health checks for Omarchy Linux / Quattro shell.
 Outputs JSON format for consumption by Quickshell QML.
 """
 
@@ -29,97 +29,269 @@ def get_mode_str(path: Path) -> str:
     except Exception:
         return "unknown"
 
-def audit_ssh_permissions():
-    ssh_dir = HOME / ".ssh"
-    if not ssh_dir.exists():
+# ----------------------------------------------------------------------
+# 1. DEEP PLUGIN CODE & SAFETY AUDIT
+# ----------------------------------------------------------------------
+def audit_plugins_deep():
+    plugins_dir = HOME / ".config" / "omarchy" / "plugins"
+    if not plugins_dir.exists():
         return {
-            "id": "ssh_perms",
-            "category": "Authentication",
-            "title": "SSH Directory & Keys",
+            "id": "plugins_deep",
+            "category": "Plugin Health",
+            "title": "Shell Plugin Code Health & Safety",
             "passed": True,
-            "score": 15,
-            "max_score": 15,
-            "description": "No ~/.ssh directory found (nothing exposed).",
+            "score": 25,
+            "max_score": 25,
+            "severity": "info",
+            "description": "No user shell plugins installed.",
             "recommendation": None,
-            "fix_cmd": None
+            "fix_cmd": None,
+            "scanned_count": 0,
+            "files_count": 0,
+            "flagged_items": []
         }
 
+    rules = [
+        {
+            "id": "pipe_to_shell",
+            "severity": "CRITICAL",
+            "regex": re.compile(r'(curl|wget)\s+[^|\n]+?\|\s*(ba)?sh', re.IGNORECASE),
+            "title": "Pipes remote download directly to shell execution",
+            "explanation": "Executes unverified remote web content directly in bash."
+        },
+        {
+            "id": "obfuscated_exec",
+            "severity": "CRITICAL",
+            "regex": re.compile(r'(eval\s*\(|new\s+Function\s*\(|base64\s+-d\s*\|\s*(ba)?sh|exec\s*\(\s*bytes\.fromhex)', re.IGNORECASE),
+            "title": "Dynamic / Obfuscated Code Execution",
+            "explanation": "Executes dynamically compiled or encoded strings in memory."
+        },
+        {
+            "id": "private_key",
+            "severity": "CRITICAL",
+            "regex": re.compile(r'-----BEGIN\s+(RSA|OPENSSH|EC|DSA|PGP)\s+PRIVATE\s+KEY-----'),
+            "title": "Hardcoded Private Key",
+            "explanation": "Unencrypted private cryptographic key found inside source."
+        },
+        {
+            "id": "api_secret",
+            "severity": "HIGH",
+            "regex": re.compile(r'(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{82}|AKIA[0-9A-Z]{16})'),
+            "title": "Hardcoded Cloud/API Token",
+            "explanation": "Live cloud access token or GitHub PAT found in plaintext."
+        },
+        {
+            "id": "sensitive_credential_access",
+            "severity": "HIGH",
+            "regex": re.compile(r'(\.ssh/id_|\.gnupg/|\.local/share/keyrings|/etc/shadow|\.config/google-chrome)', re.IGNORECASE),
+            "title": "Accesses Protected Credentials Path",
+            "explanation": "Accesses private SSH keys, GPG rings, or browser authentication databases."
+        },
+        {
+            "id": "silent_sudo",
+            "severity": "MEDIUM",
+            "regex": re.compile(r'^\s*(sudo\s+|pkexec\s+|doas\s+)', re.MULTILINE | re.IGNORECASE),
+            "title": "Privilege Escalation (sudo/pkexec)",
+            "explanation": "Plugin executes commands with root privileges."
+        }
+    ]
+
+    scanned_plugins = 0
+    total_files = 0
+    flagged_items = []
+
+    for plugin in plugins_dir.iterdir():
+        if not plugin.is_dir() or plugin.name.startswith(".") or plugin.name in ["omasecurity", "ucmz851.omasecurity", "local.omasecurity"]:
+            continue
+        scanned_plugins += 1
+
+        for root, dirs, files in os.walk(plugin):
+            if ".git" in dirs:
+                dirs.remove(".git")
+            # Skip test suites to avoid mock test false positives
+            if "test" in dirs:
+                dirs.remove("test")
+            if "tests" in dirs:
+                dirs.remove("tests")
+
+            for f in files:
+                ext = Path(f).suffix.lower()
+                if ext in [".qml", ".js", ".sh", ".py", ".json", ".toml"]:
+                    total_files += 1
+                    filepath = Path(root) / f
+                    try:
+                        lines = filepath.read_text(errors="ignore").splitlines()
+                        for line_no, line in enumerate(lines, 1):
+                            sline = line.strip()
+                            # Skip comment lines
+                            if sline.startswith("//") or sline.startswith("#") or sline.startswith("*") or sline.startswith("/*"):
+                                continue
+                            for rule in rules:
+                                if rule["regex"].search(sline):
+                                    rel = filepath.relative_to(plugins_dir)
+                                    flagged_items.append({
+                                        "plugin": plugin.name,
+                                        "file": str(rel),
+                                        "line": line_no,
+                                        "severity": rule["severity"],
+                                        "title": rule["title"],
+                                        "explanation": rule["explanation"],
+                                        "snippet": sline[:80]
+                                    })
+                                    break
+                    except Exception:
+                        pass
+
+    critical_count = sum(1 for x in flagged_items if x["severity"] == "CRITICAL")
+    high_count = sum(1 for x in flagged_items if x["severity"] == "HIGH")
+    med_count = sum(1 for x in flagged_items if x["severity"] == "MEDIUM")
+
+    score_deduction = (critical_count * 15) + (high_count * 8) + (med_count * 3)
+    final_score = max(0, 25 - score_deduction)
+    passed = len(flagged_items) == 0
+
+    if passed:
+        desc = f"All {scanned_plugins} installed plugins ({total_files} files) passed deep static security analysis."
+    else:
+        desc = f"Scanned {scanned_plugins} plugins ({total_files} files): {len(flagged_items)} risk(s) flagged ({critical_count} critical, {high_count} high, {med_count} medium)."
+
+    return {
+        "id": "plugins_deep",
+        "category": "Plugin Health",
+        "title": "Shell Plugin Code Health & Safety",
+        "passed": passed,
+        "score": final_score,
+        "max_score": 25,
+        "severity": "critical" if critical_count > 0 else ("high" if high_count > 0 else ("medium" if med_count > 0 else "info")),
+        "description": desc,
+        "recommendation": "Inspect flagged plugin source files and remove unescaped shell executions, hardcoded tokens, or unneeded sudo commands." if not passed else None,
+        "fix_cmd": None,
+        "scanned_count": scanned_plugins,
+        "files_count": total_files,
+        "flagged_items": flagged_items
+    }
+
+# ----------------------------------------------------------------------
+# 2. KERNEL & MEMORY PROTECTION (SYSCTL / YAMA)
+# ----------------------------------------------------------------------
+def audit_kernel_hardening():
     issues = []
-    if not check_file_mode(ssh_dir, 0o700):
-        issues.append(f"~/.ssh has permission {get_mode_str(ssh_dir)} (recommended: 700)")
+    score = 15
 
-    for item in ssh_dir.iterdir():
-        if item.is_file():
-            name = item.name
-            if name.startswith("id_") and not name.endswith(".pub"):
-                if not check_file_mode(item, 0o600):
-                    issues.append(f"Private key {name} is {get_mode_str(item)} (recommended: 600)")
+    # 1. Yama ptrace scope (prevents process memory dumping)
+    ptrace_path = Path("/proc/sys/kernel/yama/ptrace_scope")
+    if ptrace_path.exists():
+        try:
+            val = int(ptrace_path.read_text().strip())
+            if val < 1:
+                issues.append("Process memory inspection unrestricted (yama.ptrace_scope = 0)")
+                score -= 6
+        except Exception:
+            pass
 
-    if issues:
-        return {
-            "id": "ssh_perms",
-            "category": "Authentication",
-            "title": "SSH Key Permissions",
-            "passed": False,
-            "score": 5,
-            "max_score": 15,
-            "description": "; ".join(issues),
-            "recommendation": "Restrict permissions on ~/.ssh and private keys so other users cannot read them.",
-            "fix_cmd": "chmod 700 ~/.ssh && chmod 600 ~/.ssh/id_* 2>/dev/null"
-        }
-    
+    # 2. dmesg restriction
+    dmesg_path = Path("/proc/sys/kernel/dmesg_restrict")
+    if dmesg_path.exists():
+        try:
+            val = int(dmesg_path.read_text().strip())
+            if val < 1:
+                issues.append("Kernel logs exposed to non-root users (dmesg_restrict = 0)")
+                score -= 4
+        except Exception:
+            pass
+
+    # 3. Kernel pointer restriction
+    kptr_path = Path("/proc/sys/kernel/kptr_restrict")
+    if kptr_path.exists():
+        try:
+            val = int(kptr_path.read_text().strip())
+            if val < 1:
+                issues.append("Kernel addresses exposed in /proc/kallsyms (kptr_restrict = 0)")
+                score -= 5
+        except Exception:
+            pass
+
+    score = max(0, score)
+    passed = len(issues) == 0
+
+    if passed:
+        desc = "Kernel memory & process isolation parameters are hardened (ptrace_scope, dmesg_restrict, kptr_restrict)."
+        fix = None
+    else:
+        desc = "; ".join(issues)
+        fix = "echo -e 'kernel.yama.ptrace_scope=1\\nkernel.dmesg_restrict=1\\nkernel.kptr_restrict=1' | sudo tee /etc/sysctl.d/99-security.conf && sudo sysctl --system"
+
     return {
-        "id": "ssh_perms",
-        "category": "Authentication",
-        "title": "SSH Directory & Keys",
-        "passed": True,
-        "score": 15,
+        "id": "kernel_hardening",
+        "category": "System Security",
+        "title": "Kernel & Memory Protection",
+        "passed": passed,
+        "score": score,
         "max_score": 15,
-        "description": "~/.ssh directory and private keys have strict permissions (700/600).",
-        "recommendation": None,
-        "fix_cmd": None
+        "severity": "high" if score < 10 else "medium",
+        "description": desc,
+        "recommendation": "Restrict process memory snooping (YAMA ptrace) and hide kernel pointers from unprivileged users." if not passed else None,
+        "fix_cmd": fix
     }
 
-def audit_gnupg_permissions():
-    gnupg_dir = HOME / ".gnupg"
-    if not gnupg_dir.exists():
-        return {
-            "id": "gnupg_perms",
-            "category": "Authentication",
-            "title": "GnuPG Directory Permissions",
-            "passed": True,
-            "score": 10,
-            "max_score": 10,
-            "description": "No ~/.gnupg directory found.",
-            "recommendation": None,
-            "fix_cmd": None
-        }
+# ----------------------------------------------------------------------
+# 3. PRIVILEGES, SUDOERS & PATH INTEGRITY
+# ----------------------------------------------------------------------
+def audit_privileges_and_path():
+    issues = []
+    score = 15
 
-    if not check_file_mode(gnupg_dir, 0o700):
-        return {
-            "id": "gnupg_perms",
-            "category": "Authentication",
-            "title": "GnuPG Directory Permissions",
-            "passed": False,
-            "score": 0,
-            "max_score": 10,
-            "description": f"~/.gnupg directory has permissive mode {get_mode_str(gnupg_dir)} (expected 700).",
-            "recommendation": "Restrict ~/.gnupg permissions to prevent unauthorized key access.",
-            "fix_cmd": "chmod 700 ~/.gnupg && chmod 600 ~/.gnupg/* 2>/dev/null"
-        }
+    # Check PATH for insecure directories
+    path_dirs = os.environ.get("PATH", "").split(":")
+    for p in path_dirs:
+        if p in ["", "."]:
+            issues.append("Current directory (.) in PATH (binary hijacking risk)")
+            score -= 8
+            break
+        else:
+            p_obj = Path(p)
+            try:
+                if p_obj.exists() and (p_obj.stat().st_mode & 0o002):
+                    issues.append(f"World-writable directory in PATH: {p}")
+                    score -= 8
+                    break
+            except Exception:
+                pass
+
+    # Check for sudo NOPASSWD: ALL
+    try:
+        res = subprocess.run(["sudo", "-n", "-l"], capture_output=True, text=True, timeout=1.0)
+        out = res.stdout
+        if "NOPASSWD: ALL" in out or "(ALL : ALL) NOPASSWD: ALL" in out:
+            issues.append("Passwordless root escalation enabled for all commands (NOPASSWD: ALL)")
+            score -= 10
+    except Exception:
+        pass
+
+    score = max(0, score)
+    passed = len(issues) == 0
+
+    if passed:
+        desc = "System execution PATH is clean and passwordless root escalation is restricted."
+    else:
+        desc = "; ".join(issues)
 
     return {
-        "id": "gnupg_perms",
+        "id": "privileges_path",
         "category": "Authentication",
-        "title": "GnuPG Directory Permissions",
-        "passed": True,
-        "score": 10,
-        "max_score": 10,
-        "description": "~/.gnupg directory is properly restricted (700).",
-        "recommendation": None,
+        "title": "Privilege Boundaries & PATH",
+        "passed": passed,
+        "score": score,
+        "max_score": 15,
+        "severity": "high" if score < 10 else "medium",
+        "description": desc,
+        "recommendation": "Remove unneeded NOPASSWD entries from sudoers and ensure PATH does not contain relative directories." if not passed else None,
         "fix_cmd": None
     }
 
+# ----------------------------------------------------------------------
+# 4. HOST FIREWALL & EXPOSURE
+# ----------------------------------------------------------------------
 def audit_firewall():
     is_active = False
     details = ""
@@ -149,8 +321,9 @@ def audit_firewall():
             "category": "Network",
             "title": "Host Firewall",
             "passed": True,
-            "score": 20,
-            "max_score": 20,
+            "score": 15,
+            "max_score": 15,
+            "severity": "info",
             "description": details or "Firewall protection is active.",
             "recommendation": None,
             "fix_cmd": None
@@ -162,13 +335,67 @@ def audit_firewall():
             "title": "Host Firewall",
             "passed": False,
             "score": 0,
-            "max_score": 20,
-            "description": "No active firewall detected (UFW/nftables/firewalld is inactive).",
-            "recommendation": "Enable a host firewall (like UFW) to protect local listening ports.",
-            "fix_cmd": "sudo ufw enable"
+            "max_score": 15,
+            "severity": "high",
+            "description": "No active host firewall detected (UFW/nftables/firewalld is inactive).",
+            "recommendation": "Enable a host firewall (like UFW) to prevent unauthorized incoming network connections.",
+            "fix_cmd": "sudo ufw enable && sudo ufw default deny incoming"
         }
 
-def audit_idle_lock():
+# ----------------------------------------------------------------------
+# 5. AUTHENTICATION & KEY PERMISSIONS
+# ----------------------------------------------------------------------
+def audit_ssh_and_gpg_permissions():
+    issues = []
+    score = 15
+
+    ssh_dir = HOME / ".ssh"
+    if ssh_dir.exists():
+        if not check_file_mode(ssh_dir, 0o700):
+            issues.append(f"~/.ssh is mode {get_mode_str(ssh_dir)} (expected 700)")
+            score -= 5
+
+        for item in ssh_dir.iterdir():
+            if item.is_file():
+                name = item.name
+                if (name.startswith("id_") or name.endswith(".pem")) and not name.endswith(".pub"):
+                    if not check_file_mode(item, 0o600):
+                        issues.append(f"Private key {name} is mode {get_mode_str(item)} (expected 600)")
+                        score -= 5
+
+    gnupg_dir = HOME / ".gnupg"
+    if gnupg_dir.exists():
+        if not check_file_mode(gnupg_dir, 0o700):
+            issues.append(f"~/.gnupg is mode {get_mode_str(gnupg_dir)} (expected 700)")
+            score -= 5
+
+    score = max(0, score)
+    passed = len(issues) == 0
+
+    if passed:
+        desc = "~/.ssh keys and ~/.gnupg keyring directories have strict permissions (700/600)."
+        fix = None
+    else:
+        desc = "; ".join(issues)
+        fix = "chmod 700 ~/.ssh ~/.gnupg 2>/dev/null; chmod 600 ~/.ssh/id_* ~/.ssh/*.pem 2>/dev/null"
+
+    return {
+        "id": "ssh_gpg_perms",
+        "category": "Authentication",
+        "title": "SSH & GPG Key Permissions",
+        "passed": passed,
+        "score": score,
+        "max_score": 15,
+        "severity": "high" if score < 10 else "medium",
+        "description": desc,
+        "recommendation": "Restrict read permissions on SSH private keys and keyring folders so other users cannot access them." if not passed else None,
+        "fix_cmd": fix
+    }
+
+# ----------------------------------------------------------------------
+# 6. DESKTOP SESSION & LOCKSCREEN
+# ----------------------------------------------------------------------
+def audit_desktop_security():
     hypridle_conf = HOME / ".config" / "hypr" / "hypridle.conf"
     shell_json = HOME / ".config" / "omarchy" / "shell.json"
     
@@ -190,81 +417,45 @@ def audit_idle_lock():
             idle_cfg = data.get("idle", {})
             if idle_cfg.get("lock", 0) > 0:
                 has_lock = True
-                lock_details.append(f"shell lock: {idle_cfg['lock']}s")
+                lock_details.append(f"shell idle lock: {idle_cfg['lock']}s")
         except Exception:
             pass
 
     if has_lock:
         return {
-            "id": "idle_lock",
+            "id": "desktop_lock",
             "category": "Desktop Security",
-            "title": "Screen Lock & Idle",
+            "title": "Screen Lock & Idle Protection",
             "passed": True,
-            "score": 15,
-            "max_score": 15,
-            "description": f"Automated screen locking is configured ({', '.join(lock_details)}).",
+            "score": 10,
+            "max_score": 10,
+            "severity": "info",
+            "description": f"Automated screen locking is active ({', '.join(lock_details)}).",
             "recommendation": None,
             "fix_cmd": None
         }
     else:
         return {
-            "id": "idle_lock",
+            "id": "desktop_lock",
             "category": "Desktop Security",
-            "title": "Screen Lock & Idle",
+            "title": "Screen Lock & Idle Protection",
             "passed": False,
             "score": 0,
-            "max_score": 15,
-            "description": "No automated screen lock timeout configured.",
-            "recommendation": "Configure idle timeout and lock command in ~/.config/omarchy/shell.json.",
-            "fix_cmd": None
-        }
-
-def audit_sshd():
-    sshd_conf = Path("/etc/ssh/sshd_config")
-    if not sshd_conf.exists():
-        return {
-            "id": "sshd_config",
-            "category": "Network",
-            "title": "SSH Server Hardening",
-            "passed": True,
-            "score": 10,
             "max_score": 10,
-            "description": "SSH server is not configured or disabled.",
-            "recommendation": None,
+            "severity": "medium",
+            "description": "No automated screen lock timeout configured in hypridle or shell.json.",
+            "recommendation": "Configure automatic session locking to secure your desktop when away from your PC.",
             "fix_cmd": None
         }
 
-    try:
-        content = sshd_conf.read_text(errors="ignore")
-        root_login_match = re.search(r"^\s*PermitRootLogin\s+(yes|prohibit-password|without-password|no)", content, re.MULTILINE | re.IGNORECASE)
-        if root_login_match and root_login_match.group(1).lower() == "yes":
-            return {
-                "id": "sshd_config",
-                "category": "Network",
-                "title": "SSH Server Hardening",
-                "passed": False,
-                "score": 2,
-                "max_score": 10,
-                "description": "PermitRootLogin is set to 'yes' in /etc/ssh/sshd_config.",
-                "recommendation": "Disable root SSH login by setting 'PermitRootLogin no' in sshd_config.",
-                "fix_cmd": "sudo sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config"
-            }
-    except Exception:
-        pass
+# ----------------------------------------------------------------------
+# 7. NETWORK PORTS & SSHD HARDENING
+# ----------------------------------------------------------------------
+def audit_network_ports_and_sshd():
+    issues = []
+    score = 5
 
-    return {
-        "id": "sshd_config",
-        "category": "Network",
-        "title": "SSH Server Hardening",
-        "passed": True,
-        "score": 10,
-        "max_score": 10,
-        "description": "SSH server configuration does not permit direct root password login.",
-        "recommendation": None,
-        "fix_cmd": None
-    }
-
-def audit_listening_ports():
+    # Check listening ports
     public_listeners = []
     try:
         res = subprocess.run(["ss", "-tuln"], capture_output=True, text=True, timeout=1.0)
@@ -282,124 +473,56 @@ def audit_listening_ports():
         pass
 
     if len(public_listeners) > 6:
-        return {
-            "id": "listening_ports",
-            "category": "Network",
-            "title": "Public Listening Ports",
-            "passed": False,
-            "score": 5,
-            "max_score": 10,
-            "description": f"Multiple services listening on 0.0.0.0 (ports: {', '.join(public_listeners[:6])}...).",
-            "recommendation": "Ensure unneeded network daemons are bound to localhost (127.0.0.1) or firewalled.",
-            "fix_cmd": None
-        }
+        issues.append(f"Multiple services bound to public interfaces ({', '.join(public_listeners[:6])}...)")
+        score -= 2
+
+    # Check SSH server root login
+    sshd_conf = Path("/etc/ssh/sshd_config")
+    if sshd_conf.exists():
+        try:
+            content = sshd_conf.read_text(errors="ignore")
+            root_login_match = re.search(r"^\s*PermitRootLogin\s+(yes|prohibit-password|without-password|no)", content, re.MULTILINE | re.IGNORECASE)
+            if root_login_match and root_login_match.group(1).lower() == "yes":
+                issues.append("SSH server allows direct root login (PermitRootLogin yes)")
+                score -= 3
+        except Exception:
+            pass
+
+    score = max(0, score)
+    passed = len(issues) == 0
+
+    if passed:
+        desc = f"Network ports are minimal ({len(public_listeners)} public: {', '.join(public_listeners) if public_listeners else 'none'}) and SSH daemon is secure."
+    else:
+        desc = "; ".join(issues)
 
     return {
-        "id": "listening_ports",
+        "id": "network_ports",
         "category": "Network",
-        "title": "Public Listening Ports",
-        "passed": True,
-        "score": 10,
-        "max_score": 10,
-        "description": f"Minimal exposed listeners ({len(public_listeners)} public ports: {', '.join(public_listeners) if public_listeners else 'none'}).",
-        "recommendation": None,
+        "title": "Public Ports & SSH Hardening",
+        "passed": passed,
+        "score": score,
+        "max_score": 5,
+        "severity": "medium" if not passed else "info",
+        "description": desc,
+        "recommendation": "Bind unneeded local services to 127.0.0.1 and disable SSH root password authentication." if not passed else None,
         "fix_cmd": None
     }
 
-def audit_plugins_code_health():
-    plugins_dir = HOME / ".config" / "omarchy" / "plugins"
-    if not plugins_dir.exists():
-        return {
-            "id": "plugins_health",
-            "category": "Plugin Health",
-            "title": "Omarchy Shell Plugins",
-            "passed": True,
-            "score": 20,
-            "max_score": 20,
-            "description": "No user shell plugins installed.",
-            "recommendation": None,
-            "fix_cmd": None,
-            "scanned_count": 0,
-            "flagged_items": []
-        }
-
-    flagged = []
-    scanned_count = 0
-
-    patterns = [
-        (re.compile(r"curl\s+[^\|]+\|\s*(ba)?sh", re.IGNORECASE), "Pipe curl to shell execution"),
-        (re.compile(r"wget\s+[^\|]+\|\s*(ba)?sh", re.IGNORECASE), "Pipe wget to shell execution"),
-        (re.compile(r"-----BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY-----"), "Hardcoded private key detected"),
-        (re.compile(r"(ghp_[a-zA-Z0-9]{36}|github_pat_[a-zA-Z0-9_]{82})"), "Hardcoded GitHub Personal Access Token"),
-        (re.compile(r"api[_-]?key\s*[:=]\s*['\"][a-zA-Z0-9_\-]{24,}['\"]", re.IGNORECASE), "Suspicious hardcoded API key")
-    ]
-
-    for plugin in plugins_dir.iterdir():
-        if not plugin.is_dir() or plugin.name.startswith(".") or plugin.name in ["omasecurity", "local.omasecurity", "ucmz851.omasecurity"]:
-            continue
-        scanned_count += 1
-
-        for root, dirs, files in os.walk(plugin):
-            if ".git" in dirs:
-                dirs.remove(".git")
-            for file in files:
-                ext = Path(file).suffix.lower()
-                if ext in [".qml", ".js", ".sh", ".py", ".json"]:
-                    filepath = Path(root) / file
-                    try:
-                        text = filepath.read_text(errors="ignore")
-                        for pat, reason in patterns:
-                            m = pat.search(text)
-                            if m:
-                                rel = filepath.relative_to(plugins_dir)
-                                flagged.append({
-                                    "plugin": plugin.name,
-                                    "file": str(rel),
-                                    "reason": reason
-                                })
-                                break
-                    except Exception:
-                        pass
-
-    if flagged:
-        return {
-            "id": "plugins_health",
-            "category": "Plugin Health",
-            "title": "Omarchy Shell Plugins",
-            "passed": False,
-            "score": max(5, 20 - (len(flagged) * 5)),
-            "max_score": 20,
-            "description": f"Scanned {scanned_count} plugins: {len(flagged)} potential security risk(s) flagged.",
-            "recommendation": "Review flagged plugin files for unescaped shell commands or hardcoded credentials.",
-            "fix_cmd": None,
-            "scanned_count": scanned_count,
-            "flagged_items": flagged
-        }
-
-    return {
-        "id": "plugins_health",
-        "category": "Plugin Health",
-        "title": "Omarchy Shell Plugins",
-        "passed": True,
-        "score": 20,
-        "max_score": 20,
-        "description": f"All {scanned_count} installed shell plugins passed code health & security checks.",
-        "recommendation": None,
-        "fix_cmd": None,
-        "scanned_count": scanned_count,
-        "flagged_items": []
-    }
-
+# ----------------------------------------------------------------------
+# MAIN EXECUTION
+# ----------------------------------------------------------------------
 def main():
     import datetime
+
     audits = [
+        audit_plugins_deep(),
         audit_firewall(),
-        audit_plugins_code_health(),
-        audit_ssh_permissions(),
-        audit_idle_lock(),
-        audit_sshd(),
-        audit_listening_ports(),
-        audit_gnupg_permissions()
+        audit_kernel_hardening(),
+        audit_privileges_and_path(),
+        audit_ssh_and_gpg_permissions(),
+        audit_desktop_security(),
+        audit_network_ports_and_sshd()
     ]
 
     total_score = sum(a["score"] for a in audits)
@@ -421,7 +544,7 @@ def main():
         status_color = "warning"
     else:
         grade = "F"
-        status_label = "Action Required"
+        status_label = "Critical Action Required"
         status_color = "urgent"
 
     failed_count = sum(1 for a in audits if not a["passed"])

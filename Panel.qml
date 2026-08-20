@@ -40,9 +40,9 @@ Panel {
   readonly property var categoryList: [
     { label: "All", key: "all" },
     { label: "Plugins", key: "Plugin Health" },
+    { label: "System", key: "System Security" },
     { label: "Network", key: "Network" },
-    { label: "Auth", key: "Authentication" },
-    { label: "Desktop", key: "Desktop Security" }
+    { label: "Auth", key: "Authentication" }
   ]
 
   readonly property var filteredAudits: {
@@ -62,6 +62,13 @@ Panel {
     if (type === "warning") return Color.accent
     if (type === "urgent") return urgent
     return foreground
+  }
+
+  function getSeverityColor(sev) {
+    if (sev === "CRITICAL") return urgent
+    if (sev === "HIGH") return urgent
+    if (sev === "MEDIUM") return Color.accent
+    return dim
   }
 
   function copyToClipboard(text) {
@@ -144,8 +151,8 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
 
-    contentWidth: panel.fittedContentWidth(Style.space(420))
-    contentHeight: panel.fittedContentHeight(mainLayout.implicitHeight, Style.space(560))
+    contentWidth: panel.fittedContentWidth(Style.space(430))
+    contentHeight: panel.fittedContentHeight(mainLayout.implicitHeight, Style.space(600))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -290,7 +297,7 @@ Panel {
             model: root.categoryList
             delegate: BorderSurface {
               readonly property bool isSelected: root.selectedCategoryKey === modelData.key
-              implicitWidth: catLabel.implicitWidth + Style.space(16)
+              implicitWidth: catLabel.implicitWidth + Style.space(14)
               implicitHeight: catLabel.implicitHeight + Style.space(8)
               radius: Style.cornerRadius
               color: isSelected ? Style.selectedFillFor(root.foreground, root.foreground) : "transparent"
@@ -328,7 +335,7 @@ Panel {
         ListView {
           id: auditList
           width: parent.width
-          height: Style.space(310)
+          height: Style.space(340)
           clip: true
           spacing: Style.space(8)
           boundsBehavior: Flickable.StopAtBounds
@@ -355,9 +362,9 @@ Panel {
               anchors.right: parent.right
               anchors.top: parent.top
               anchors.margins: Style.space(9)
-              spacing: Style.space(5)
+              spacing: Style.space(6)
 
-              // Card Title & Score Header
+              // Card Header: Icon, Title, and Score Badge
               Item {
                 width: parent.width
                 implicitHeight: Math.max(statusIcon.implicitHeight, titleText.implicitHeight, scoreBadge.implicitHeight)
@@ -389,6 +396,7 @@ Panel {
                     color: itemCard.isPassed ? root.dim : (modelData.score === 0 ? root.urgent : Color.accent)
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
+                    font.bold: true
                   }
                 }
 
@@ -418,17 +426,84 @@ Panel {
                 wrapMode: Text.Wrap
               }
 
-              // Flagged items list if present
+              // Flagged Plugin Deep Findings (if present)
               Repeater {
                 model: modelData.flagged_items || []
-                delegate: Text {
+                delegate: BorderSurface {
                   width: parent.width
-                  text: "• " + modelData.plugin + " (" + modelData.file + "): " + modelData.reason
-                  color: root.urgent
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.caption
-                  wrapMode: Text.Wrap
+                  implicitHeight: flaggedCol.implicitHeight + Style.space(10)
+                  color: Style.hoverFillFor(root.urgent, root.urgent)
+                  borderSpec: Border.controlSpec("normal", root.urgent, root.urgent)
+                  radius: Style.cornerRadius
+
+                  Column {
+                    id: flaggedCol
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    anchors.margins: Style.space(6)
+                    spacing: Style.space(2)
+
+                    Row {
+                      spacing: Style.space(6)
+                      BorderSurface {
+                        implicitWidth: sevText.implicitWidth + Style.space(6)
+                        implicitHeight: sevText.implicitHeight + Style.space(2)
+                        color: "transparent"
+                        borderSpec: Border.controlSpec("normal", root.getSeverityColor(modelData.severity), root.getSeverityColor(modelData.severity))
+                        radius: Style.cornerRadius
+
+                        Text {
+                          id: sevText
+                          anchors.centerIn: parent
+                          text: modelData.severity
+                          color: root.getSeverityColor(modelData.severity)
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          font.bold: true
+                        }
+                      }
+
+                      Text {
+                        text: modelData.title
+                        color: root.foreground
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                      }
+                    }
+
+                    Text {
+                      width: parent.width
+                      text: "File: " + modelData.file + ":" + modelData.line
+                      color: root.dim
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      elide: Text.ElideMiddle
+                    }
+
+                    Text {
+                      width: parent.width
+                      text: "`" + modelData.snippet + "`"
+                      color: root.urgent
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: true
+                      wrapMode: Text.Wrap
+                    }
+                  }
                 }
+              }
+
+              // Recommendation text if not passed
+              Text {
+                visible: modelData.recommendation !== null && modelData.recommendation !== undefined && modelData.recommendation !== ""
+                width: parent.width
+                text: "Recommendation: " + (modelData.recommendation || "")
+                color: Color.accent
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.Wrap
               }
 
               // Fix Command Box if present
