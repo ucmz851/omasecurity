@@ -1,13 +1,23 @@
 # OmaSecurity (`omasecurity`)
 
-**OmaSecurity** is a lightweight, native security posture auditor and shell plugin code health monitor designed specifically for the Omarchy Quattro desktop environment (`omarchy-shell` / Quickshell).
+**OmaSecurity** is a lightweight, native security posture auditor and shell plugin code health scanner designed for the Omarchy Quattro desktop environment (`omarchy-shell` / Quickshell).
+
+---
+
+## Installation
+
+Install directly with the Omarchy plugin manager:
+
+```bash
+omarchy plugin add https://github.com/ucmz851/omasecurity.git --enable
+```
 
 ---
 
 ## Features
 
-- **Security Posture Score**: Glanceable overall health score (0–100%) and Letter Grade (A–F) directly on the status bar.
-- **Omarchy Shell Plugin Health**: Continuously scans installed user plugins in `~/.config/omarchy/plugins/` for dangerous script execution patterns (e.g. `curl | sh`, hardcoded private keys or tokens, plain text credentials).
+- **Security Posture Score**: Glanceable overall health score (0–100%) and letter grade (A–F) directly on the status bar.
+- **Omarchy Shell Plugin Health**: Continuously scans installed user plugins in `~/.config/omarchy/plugins/` for dangerous script execution patterns (e.g. `curl | sh`, hardcoded private keys or tokens, plaintext credentials).
 - **Network & Exposure Audits**:
   - Checks host firewall state (`ufw`, `nftables`, `firewalld`).
   - Audits public listening ports bound to `0.0.0.0` or `::` vs localhost (`127.0.0.1`).
@@ -17,7 +27,7 @@
   - Checks strict permissions on `~/.ssh/` and private key files (`700`/`600`).
   - Checks permissions on `~/.gnupg/` (`700`).
 - **One-Click Remediation**: Click any suggested fix or press `Enter` to instantly copy the recommended shell command to your clipboard.
-- **Native Quattro Design**: Uses standard Quattro components (`Panel`, `BarWidget`, `Style`, `PanelHero`, `BorderSurface`) with dark/light theme inheritance and keyboard navigation.
+- **Native Quattro Design**: Uses standard Quattro components (`Panel`, `BarWidget`, `Style`, `BorderSurface`) with dark/light theme inheritance and keyboard navigation.
 
 ---
 
@@ -28,6 +38,7 @@ omasecurity/
 ├── BarWidget.qml       # Bar icon, status color indicator, and tooltip
 ├── Panel.qml           # Anchored flyout panel with score, tabs, and fix commands
 ├── manifest.json       # Omarchy Quattro plugin manifest
+├── LICENSE             # MIT License
 ├── README.md           # Documentation & instructions
 └── scripts/
     └── audit.py        # Fast, non-blocking Python audit engine (<150ms execution)
@@ -40,21 +51,13 @@ omasecurity/
 | Action | Control |
 | :--- | :--- |
 | **Open / Close Panel** | Left Click on Shield bar icon |
-| **Immediate Rescan** | Middle Click on Shield bar icon, or press `R` inside panel |
+| **Immediate Rescan** | Middle Click on Shield bar icon, click the `` refresh icon, or press `R` inside panel |
 | **Navigate Issues** | `Up` / `Down` arrow keys |
 | **Copy Fix Command** | `Enter` / `Space` on selected issue, or click the copy icon |
 | **Dismiss Panel** | `Escape` |
 
 ---
 
-## Managing Placement
+## License
 
-Add or move OmaSecurity on your Omarchy bar using the standard `omarchy bar` command:
-
-```bash
-# Add to right section
-omarchy bar put omasecurity --section right
-
-# Move next to tray
-omarchy bar move omasecurity --after omarchy.tray
-```
+MIT © [ucmz851](https://github.com/ucmz851)

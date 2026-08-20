@@ -3,8 +3,9 @@
   "id": "omasecurity",
   "name": "OmaSecurity",
   "version": "1.0.0",
-  "author": "ucheema",
-  "description": "Security posture auditor and plugin code health monitor for Omarchy Quattro",
+  "author": "ucmz851",
+  "license": "MIT",
+  "description": "Security posture auditor, shell plugin code health scanner, and hardening advisor for Omarchy Quattro.",
   "kinds": [
     "bar-widget"
   ],
@@ -13,8 +14,17 @@
   },
   "barWidget": {
     "displayName": "OmaSecurity",
-    "description": "System security & plugin health auditor",
-    "category": "System",
+    "description": "System security posture score, shell plugin code health scanner, and one-click hardening recommendations.",
+    "category": "Security",
+    "aliases": [
+      "security",
+      "audit",
+      "scanner",
+      "hardening",
+      "firewall",
+      "health"
+    ],
+    "defaultSection": "right",
     "allowMultiple": false
   }
 }
