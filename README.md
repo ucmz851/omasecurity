@@ -6,6 +6,12 @@ It provides continuous, glanceable security auditing on the status bar and expan
 
 ---
 
+<p align="center">
+  <img src="preview.png" alt="OmaSecurity Preview" width="420" />
+</p>
+
+---
+
 ## Installation
 
 Install directly using the Omarchy plugin manager:
@@ -80,6 +86,8 @@ omasecurity/
 ├── manifest.json       # Omarchy Quattro plugin manifest (namespaced id: ucmz851.omasecurity)
 ├── LICENSE             # MIT License
 ├── README.md           # Documentation & instructions
+├── preview.png         # Marketplace preview thumbnail
+├── screenshots/        # Additional UI screenshots
 └── scripts/
     └── audit.py        # Fast, non-blocking Python audit engine (<120ms execution)
 ```
