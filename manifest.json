@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "omasecurity",
+  "name": "OmaSecurity",
+  "version": "1.0.0",
+  "author": "ucheema",
+  "description": "Security posture auditor and plugin code health monitor for Omarchy Quattro",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "OmaSecurity",
+    "description": "System security & plugin health auditor",
+    "category": "System",
+    "allowMultiple": false
+  }
+}
