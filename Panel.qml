@@ -9,8 +9,8 @@ import qs.Ui
 Panel {
   id: root
 
-  moduleName: "omasecurity"
-  ipcTarget: "omasecurity"
+  moduleName: "ucmz851.omasecurity"
+  ipcTarget: "ucmz851.omasecurity"
   manageIpc: false
 
   property var anchorItem: null
@@ -120,7 +120,7 @@ Panel {
 
   Process {
     id: auditProc
-    command: ["python3", Quickshell.env("HOME") + "/.config/omarchy/plugins/omasecurity/scripts/audit.py"]
+    command: ["python3", Quickshell.env("HOME") + "/.config/omarchy/plugins/ucmz851.omasecurity/scripts/audit.py"]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.parseAuditOutput(text)

@@ -4,7 +4,7 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "omasecurity"
+  moduleName: "ucmz851.omasecurity"
 
   function injectPanel() {
     var target = panelLoader.item
