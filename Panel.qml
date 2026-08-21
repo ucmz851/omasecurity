@@ -73,7 +73,7 @@ Panel {
 
   function copyToClipboard(text) {
     if (!text) return
-    Quickshell.execDetached(["bash", "-c", "printf %s " + Util.shellQuote(text) + " | wl-copy"])
+    Quickshell.execDetached(["wl-copy", "--", text])
     root.copiedNotice = text
     noticeTimer.restart()
   }
@@ -103,8 +103,13 @@ Panel {
 
   onOpenedChanged: {
     if (opened) {
+      root.cursorIndex = 0
       Qt.callLater(function() {
         if (keyCatcher) keyCatcher.forceActiveFocus()
+        if (auditList) {
+          auditList.contentY = 0
+          auditList.positionViewAtBeginning()
+        }
       })
     }
   }
@@ -151,8 +156,8 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
 
-    contentWidth: panel.fittedContentWidth(Style.space(430))
-    contentHeight: panel.fittedContentHeight(mainLayout.implicitHeight, Style.space(600))
+    contentWidth: panel.fittedContentWidth(Style.space(460))
+    contentHeight: panel.fittedContentHeight(mainLayout.implicitHeight, Style.space(640))
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -160,7 +165,12 @@ Panel {
 
       onMoveRequested: function(dx, dy) {
         if (dy !== 0 && root.filteredAudits.length > 0) {
-          root.cursorIndex = Math.max(0, Math.min(root.filteredAudits.length - 1, root.cursorIndex + dy))
+          var nextIdx = Math.max(0, Math.min(root.filteredAudits.length - 1, root.cursorIndex + dy))
+          root.cursorIndex = nextIdx
+          if (auditList) {
+            auditList.currentIndex = nextIdx
+            auditList.positionViewAtIndex(nextIdx, dy > 0 ? ListView.End : ListView.Beginning)
+          }
         }
       }
       onActivateRequested: {
@@ -327,6 +337,10 @@ Panel {
                 onClicked: {
                   root.selectedCategoryKey = modelData.key
                   root.cursorIndex = 0
+                  if (auditList) {
+                    auditList.contentY = 0
+                    auditList.positionViewAtBeginning()
+                  }
                 }
               }
             }
@@ -341,15 +355,32 @@ Panel {
         ListView {
           id: auditList
           width: parent.width
-          height: Style.space(340)
+          height: Style.space(380)
           clip: true
           spacing: Style.space(8)
           boundsBehavior: Flickable.StopAtBounds
+          flickableDirection: Flickable.VerticalFlick
+          interactive: true
           model: root.filteredAudits
+          currentIndex: root.cursorIndex
+
+          ScrollBar.vertical: ScrollBar {
+            id: vbar
+            policy: ScrollBar.AsNeeded
+            interactive: true
+            width: Style.space(5)
+            anchors.right: parent.right
+
+            contentItem: Rectangle {
+              implicitWidth: Style.space(5)
+              radius: Style.cornerRadius
+              color: vbar.pressed ? Color.accent : (vbar.hovered ? root.foreground : Qt.darker(root.foreground, 1.8))
+            }
+          }
 
           delegate: BorderSurface {
             id: itemCard
-            width: auditList.width
+            width: auditList.width - Style.space(12)
             implicitHeight: cardColumn.implicitHeight + Style.space(18)
             radius: Style.cornerRadius
 
@@ -496,8 +527,8 @@ Panel {
                     }
 
                     Text {
-                      textFormat: Text.PlainText
                       width: parent.width
+                      textFormat: Text.PlainText
                       text: "`" + modelData.snippet + "`"
                       color: root.urgent
                       font.family: root.fontFamily
@@ -521,39 +552,38 @@ Panel {
                 wrapMode: Text.Wrap
               }
 
-              // Fix Command Box if present
+              // Fix Command Box with robust wrapping & padding
               BorderSurface {
                 visible: modelData.fix_cmd !== null && modelData.fix_cmd !== undefined && modelData.fix_cmd !== ""
                 width: parent.width
-                implicitHeight: Math.max(Style.space(26), fixText.implicitHeight + Style.space(8))
+                implicitHeight: fixRow.implicitHeight + Style.space(12)
                 color: Style.hoverFillFor(root.foreground, root.foreground)
                 borderSpec: Border.controlSpec("normal", root.dim, Color.accent)
                 radius: Style.cornerRadius
 
-                Item {
-                  anchors.fill: parent
-                  anchors.leftMargin: Style.space(8)
-                  anchors.rightMargin: Style.space(4)
+                RowLayout {
+                  id: fixRow
+                  anchors.left: parent.left
+                  anchors.right: parent.right
+                  anchors.top: parent.top
+                  anchors.margins: Style.space(6)
+                  spacing: Style.space(6)
 
                   Text {
                     id: fixText
                     textFormat: Text.PlainText
-                    anchors.left: parent.left
-                    anchors.right: copyBtn.left
-                    anchors.rightMargin: Style.space(6)
-                    anchors.verticalCenter: parent.verticalCenter
+                    Layout.fillWidth: true
                     text: "$ " + (modelData.fix_cmd || "")
                     color: root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
                     font.bold: true
-                    elide: Text.ElideRight
+                    wrapMode: Text.WrapAnywhere
                   }
 
                   PanelActionButton {
                     id: copyBtn
-                    anchors.right: parent.right
-                    anchors.verticalCenter: parent.verticalCenter
+                    Layout.alignment: Qt.AlignRight | Qt.AlignTop
                     iconText: ""
                     tooltipText: "Copy Command"
                     foreground: Color.accent
@@ -566,7 +596,9 @@ Panel {
             MouseArea {
               anchors.fill: parent
               cursorShape: Qt.PointingHandCursor
-              onClicked: {
+              propagateComposedEvents: true
+              onWheel: function(wheel) { wheel.accepted = false }
+              onClicked: function(mouse) {
                 root.cursorIndex = index
                 if (modelData.fix_cmd) root.copyToClipboard(modelData.fix_cmd)
               }
@@ -578,11 +610,12 @@ Panel {
         Text {
           textFormat: Text.PlainText
           width: parent.width
-          text: "Tip: Press 'R' to rescan, or click any command to copy."
+          text: "Tip: Scroll with mouse or press ↑ / ↓ to navigate · Click any command to copy · 'R' to rescan"
           color: Qt.darker(root.dim, 1.3)
           font.family: root.fontFamily
           font.pixelSize: Style.font.caption
           horizontalAlignment: Text.AlignHCenter
+          wrapMode: Text.Wrap
         }
       }
     }
