@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ucmz851.omasecurity",
   "name": "OmaSecurity",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "ucmz851",
   "license": "MIT",
   "description": "Security posture auditor, shell plugin code health scanner, and hardening advisor for Omarchy Quattro.",
