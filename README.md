@@ -12,12 +12,20 @@ It provides continuous, glanceable security auditing on the status bar and expan
 
 ---
 
-## Installation
+## Installation & Removal
 
+### Installation
 Install directly using the Omarchy plugin manager:
 
 ```bash
 omarchy plugin add https://github.com/ucmz851/omasecurity.git --enable
+```
+
+### Removal
+To disable and remove the plugin from your system:
+
+```bash
+omarchy plugin remove ucmz851.omasecurity
 ```
 
 ---
