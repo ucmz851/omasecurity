@@ -188,6 +188,7 @@ Panel {
           implicitHeight: Math.max(heroShield.implicitHeight, heroLabels.implicitHeight)
 
           Text {
+            textFormat: Text.PlainText
             id: heroShield
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
@@ -209,6 +210,7 @@ Panel {
             Row {
               spacing: Style.space(8)
               Text {
+                textFormat: Text.PlainText
                 text: "Security Score: " + root.score + "%"
                 color: root.foreground
                 font.family: root.fontFamily
@@ -225,6 +227,7 @@ Panel {
                 radius: Style.cornerRadius
 
                 Text {
+                  textFormat: Text.PlainText
                   id: gradeText
                   anchors.centerIn: parent
                   text: "Grade " + root.grade
@@ -237,6 +240,7 @@ Panel {
             }
 
             Text {
+              textFormat: Text.PlainText
               text: root.statusLabel + " · " + (root.lastScanTime ? "Last scan: " + root.lastScanTime : "Ready")
               color: root.dim
               font.family: root.fontFamily
@@ -307,6 +311,7 @@ Panel {
                 : Border.controlSpec("normal", root.dim, Color.accent)
 
               Text {
+                textFormat: Text.PlainText
                 id: catLabel
                 anchors.centerIn: parent
                 text: modelData.label
@@ -371,6 +376,7 @@ Panel {
                 implicitHeight: Math.max(statusIcon.implicitHeight, titleText.implicitHeight, scoreBadge.implicitHeight)
 
                 Text {
+                  textFormat: Text.PlainText
                   id: statusIcon
                   anchors.left: parent.left
                   anchors.verticalCenter: parent.verticalCenter
@@ -391,6 +397,7 @@ Panel {
                   borderSpec: Border.none()
 
                   Text {
+                    textFormat: Text.PlainText
                     id: scoreText
                     anchors.centerIn: parent
                     text: (itemCard.isPassed ? "+" : "") + modelData.score + "/" + modelData.max_score + " pts"
@@ -457,6 +464,7 @@ Panel {
                         radius: Style.cornerRadius
 
                         Text {
+                          textFormat: Text.PlainText
                           id: sevText
                           anchors.centerIn: parent
                           text: modelData.severity
@@ -488,6 +496,7 @@ Panel {
                     }
 
                     Text {
+                      textFormat: Text.PlainText
                       width: parent.width
                       text: "`" + modelData.snippet + "`"
                       color: root.urgent
@@ -567,6 +576,7 @@ Panel {
 
         // ------------------ FOOTER ------------------
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           text: "Tip: Press 'R' to rescan, or click any command to copy."
           color: Qt.darker(root.dim, 1.3)
