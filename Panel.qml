@@ -127,7 +127,7 @@ Panel {
 
   Process {
     id: auditProc
-    command: ["python3", Quickshell.env("HOME") + "/.config/omarchy/plugins/ucmz851.omasecurity/scripts/audit.py"]
+    command: ["python3", Qt.resolvedUrl("scripts/audit.py").toString().replace(/^file:\/\//, "")]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.parseAuditOutput(text)
