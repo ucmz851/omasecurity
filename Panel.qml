@@ -276,6 +276,7 @@ Panel {
 
           Text {
             id: noticeText
+            textFormat: Text.PlainText
             anchors.centerIn: parent
             text: "Copied fix command: " + root.copiedNotice
             color: Color.accent
@@ -402,6 +403,7 @@ Panel {
 
                 Text {
                   id: titleText
+                  textFormat: Text.PlainText
                   anchors.left: statusIcon.right
                   anchors.leftMargin: Style.space(8)
                   anchors.right: scoreBadge.left
@@ -418,6 +420,7 @@ Panel {
 
               // Card Description
               Text {
+                textFormat: Text.PlainText
                 width: parent.width
                 text: modelData.description
                 color: root.dim
@@ -465,6 +468,7 @@ Panel {
                       }
 
                       Text {
+                        textFormat: Text.PlainText
                         text: modelData.title
                         color: root.foreground
                         font.family: root.fontFamily
@@ -475,6 +479,7 @@ Panel {
 
                     Text {
                       width: parent.width
+                      textFormat: Text.PlainText
                       text: "File: " + modelData.file + ":" + modelData.line
                       color: root.dim
                       font.family: root.fontFamily
@@ -497,6 +502,7 @@ Panel {
 
               // Recommendation text if not passed
               Text {
+                textFormat: Text.PlainText
                 visible: modelData.recommendation !== null && modelData.recommendation !== undefined && modelData.recommendation !== ""
                 width: parent.width
                 text: "Recommendation: " + (modelData.recommendation || "")
@@ -522,6 +528,7 @@ Panel {
 
                   Text {
                     id: fixText
+                    textFormat: Text.PlainText
                     anchors.left: parent.left
                     anchors.right: copyBtn.left
                     anchors.rightMargin: Style.space(6)
