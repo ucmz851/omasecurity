@@ -286,25 +286,27 @@ def audit_privileges_and_path():
 def audit_firewall():
     is_active = False
     details = ""
-    
-    try:
-        res = subprocess.run(["ufw", "status"], capture_output=True, text=True, timeout=1.5)
-        if "Status: active" in res.stdout:
-            is_active = True
-            details = "UFW firewall is active."
-    except Exception:
-        pass
 
+    # Check via systemctl first (no root needed) for ufw and other firewalls
+    for srv in ["ufw", "nftables", "firewalld", "iptables"]:
+        try:
+            res = subprocess.run(["systemctl", "is-active", srv], capture_output=True, text=True, timeout=1.0)
+            if res.stdout.strip() == "active":
+                is_active = True
+                details = f"{srv} service is active."
+                break
+        except Exception:
+            pass
+
+    # Fallback: try ufw status via sudo -n (non-interactive, won't prompt for password)
     if not is_active:
-        for srv in ["nftables", "firewalld", "iptables"]:
-            try:
-                res = subprocess.run(["systemctl", "is-active", srv], capture_output=True, text=True, timeout=1.0)
-                if res.stdout.strip() == "active":
-                    is_active = True
-                    details = f"{srv} service is active."
-                    break
-            except Exception:
-                pass
+        try:
+            res = subprocess.run(["sudo", "-n", "ufw", "status"], capture_output=True, text=True, timeout=1.5)
+            if "Status: active" in res.stdout:
+                is_active = True
+                details = "UFW firewall is active."
+        except Exception:
+            pass
 
     if is_active:
         return {
