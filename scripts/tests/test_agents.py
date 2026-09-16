@@ -444,6 +444,52 @@ class AgentSurfaceTests(unittest.TestCase):
         # cap 2 * CRITICAL 6 = 12 deducted from 15
         self.assertEqual(result["score"], 3)
 
+    def test_eval_call_is_medium(self):
+        home = Path(tempfile.mkdtemp(prefix="omasec-eval-"))
+        self.addCleanup(shutil.rmtree, home, True)
+        _write(home / ".claude/skills/eval-call/run.py", "x = eval(s)\n")
+        result = check_agent_skills(home=home)
+        hits = [
+            item for item in result["flagged_items"]
+            if item["plugin"] == "eval-call"
+        ]
+        self.assertTrue(hits)
+        self.assertTrue(all(item["severity"] == "MEDIUM" for item in hits))
+        self.assertTrue(
+            any(item["title"] == "Dynamic / Obfuscated Code Execution" for item in hits)
+        )
+
+    def test_quoted_eval_warning_is_not_flagged(self):
+        home = Path(tempfile.mkdtemp(prefix="omasec-evalq-"))
+        self.addCleanup(shutil.rmtree, home, True)
+        _write(
+            home / ".claude/skills/eval-warn/hooks/patterns.py",
+            '"warning": "eval() is dangerous"\n',
+        )
+        result = check_agent_skills(home=home)
+        hits = [
+            item for item in result["flagged_items"]
+            if item["plugin"] == "eval-warn"
+        ]
+        self.assertEqual(hits, [])
+
+    def test_eval_in_triple_quoted_block_is_at_most_medium(self):
+        home = Path(tempfile.mkdtemp(prefix="omasec-eval3-"))
+        self.addCleanup(shutil.rmtree, home, True)
+        _write(
+            home / ".claude/skills/eval-prompt/hooks/llm.py",
+            'PROMPT = """\n'
+            "Never call eval() on model output.\n"
+            '"""\n',
+        )
+        result = check_agent_skills(home=home)
+        hits = [
+            item for item in result["flagged_items"]
+            if item["plugin"] == "eval-prompt"
+        ]
+        self.assertFalse(any(item["severity"] == "CRITICAL" for item in hits))
+        self.assertTrue(all(item["severity"] == "MEDIUM" for item in hits))
+
 
 if __name__ == "__main__":
     unittest.main()

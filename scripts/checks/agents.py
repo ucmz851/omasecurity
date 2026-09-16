@@ -117,9 +117,18 @@ SKILL_OBFUSCATION = {
     "explanation": "Skill script uses base64 -d or python -c.",
 }
 
-# Scripts: full DEFAULT_RULES plus agent extras. Markdown never uses silent_sudo,
-# obfuscated_exec, or skill_sensitive_write.
-SCRIPT_RULES = list(DEFAULT_RULES) + [
+# Scripts: DEFAULT_RULES plus agent extras, but obfuscated_exec is MEDIUM here.
+# In skill trees that rule is a heuristic with a high false-positive rate on
+# tooling code; pipe_to_shell, private_key, and agent_auto_approve stay CRITICAL.
+# Markdown never uses silent_sudo, obfuscated_exec, or skill_sensitive_write.
+SCRIPT_RULES = [
+    (
+        _copy_rule(rule, "MEDIUM")
+        if rule["id"] == "obfuscated_exec"
+        else rule
+    )
+    for rule in DEFAULT_RULES
+] + [
     AGENT_AUTO_APPROVE,
     SKILL_SENSITIVE_WRITE,
     INSECURE_FETCH,
@@ -307,6 +316,12 @@ def _format_items(items, skill_name, root_label):
     return kept
 
 
+def _inside_string_literal(line, index):
+    """Odd quotes before index means the match sits inside a same-line string."""
+    prefix = line[:index]
+    return (prefix.count("'") + prefix.count('"')) % 2 == 1
+
+
 def _apply_rules(filepath, rel, rules, max_bytes):
     filepath = Path(filepath)
     if not rules:
@@ -332,22 +347,28 @@ def _apply_rules(filepath, rel, rules, max_bytes):
         ):
             continue
         for rule in rules:
-            if rule["regex"].search(line):
-                snippet = (
-                    "[redacted]"
-                    if rule.get("id") in SECRET_RULE_IDS
-                    else sanitize_snippet(sline, 80)
-                )
-                flagged.append({
-                    "file": rel,
-                    "line": line_no,
-                    "severity": rule["severity"],
-                    "title": rule["title"],
-                    "explanation": rule["explanation"],
-                    "snippet": snippet,
-                    "rule_id": rule.get("id"),
-                })
-                break
+            match = rule["regex"].search(line)
+            if not match:
+                continue
+            if rule.get("id") == "obfuscated_exec" and _inside_string_literal(
+                line, match.start()
+            ):
+                continue
+            snippet = (
+                "[redacted]"
+                if rule.get("id") in SECRET_RULE_IDS
+                else sanitize_snippet(sline, 80)
+            )
+            flagged.append({
+                "file": rel,
+                "line": line_no,
+                "severity": rule["severity"],
+                "title": rule["title"],
+                "explanation": rule["explanation"],
+                "snippet": snippet,
+                "rule_id": rule.get("id"),
+            })
+            break
     return flagged, 1
 
 
