@@ -66,9 +66,10 @@ Scans all installed QML, JavaScript, Python, Shell, and TOML files in `~/.config
 
 - **Glanceable Status Bar Widget:** Shield icon (`󰒃`) dynamically tints green, yellow, or urgent red based on security score.
 - **Animated Rescan:** Spinning refresh button (``) provides immediate visual feedback.
-- **Category Filter Tabs:** Quickly filter audit results by `All`, `Plugins`, `System`, `Network`, and `Auth`.
+- **Category Filter Tabs:** Tabs are derived from audit categories (`All` plus each distinct category). Unknown categories still get a tab.
+- **Not-applicable checks:** Shown with a dim **N/A** badge and are excluded from the score.
 - **One-Click Remediation:** Click any fix command box or press `Enter`/`Space` to copy the exact shell command to your clipboard.
-- **Zero-Bloat Performance:** Complete deep scan executes in **<120ms** without background daemons or battery drain.
+- **Zero-Bloat Performance:** The fast lane completes in **<150ms** with no network. Slow checks run in the background 10s after load, then hourly.
 
 ---
 
@@ -85,6 +86,51 @@ Scans all installed QML, JavaScript, Python, Shell, and TOML files in `~/.config
 
 ---
 
+## Headless and CI usage
+
+The panel runs `python3 scripts/audit.py` with no flags (fast lane + cached slow
+results) and always gets exit code 0. For terminals and CI:
+
+```bash
+python3 scripts/audit.py --format text
+python3 scripts/audit.py --list
+python3 scripts/audit.py --only firewall,kernel_hardening --format text
+python3 scripts/audit.py --skip plugins_deep
+python3 scripts/audit.py --slow                  # run slow checks now and refresh the cache
+python3 scripts/audit.py --no-cache              # do not read cached slow results
+python3 scripts/audit.py --baseline previous.json --strict
+```
+
+| Flag | Effect |
+| :--- | :--- |
+| `--format json\|text` | JSON (default) or a score table plus one line per check |
+| `--only ID[,ID]` | Run only these check ids |
+| `--skip ID[,ID]` | Skip these check ids |
+| `--list` | Print `id`, `category`, `lane`, `max_score` and exit |
+| `--slow` | Run slow-lane checks, write `$XDG_CACHE_HOME/omasecurity`, then print |
+| `--no-cache` | Ignore cached slow results (pending N/A unless `--slow`) |
+| `--baseline PATH` | Fill `baselineDiff` with `regressed`, `improved`, `scoreDelta` |
+| `--strict` | Exit `1` if an applicable check failed or a baseline id regressed; exit `2` if `errors` is non-empty |
+
+Example `--format text` run:
+
+```
+OmaSecurity 2.0.0  score=82  grade=B  Good Security
+host  14:02:11  checks=7  failed=1  n/a=2
+
+PASS  plugins_deep         Plugin Health       fast   25/25  All 2 installed plugins...
+FAIL  firewall             Network             fast    0/15  No active host firewall...
+N/A   kernel_hardening     System Security     fast    0/15  Kernel sysctl, cmdline...
+```
+
+JSON schema (two lines): every document has `schemaVersion: 2`, `tool`, `version`,
+`score`, `grade`, `audits[]`, `errors[]`, and `baselineDiff`. Each audit has
+`id`, `passed`, `applicable`, `score`, `max_score`, `severity`, `details`, `lane`.
+
+See [BASELINE.md](BASELINE.md) for scoring, N/A rules, and the check catalog.
+
+---
+
 ## File Structure
 
 ```
@@ -94,10 +140,24 @@ omasecurity/
 ├── manifest.json       # Omarchy Quattro plugin manifest (namespaced id: ucmz851.omasecurity)
 ├── LICENSE             # MIT License
 ├── README.md           # Documentation & instructions
+├── BASELINE.md         # Score contract, lanes, exit codes, and check catalog
 ├── preview.png         # Marketplace preview thumbnail
 ├── screenshots/        # Additional UI screenshots
 └── scripts/
-    └── audit.py        # Fast, non-blocking Python audit engine (<120ms execution)
+    ├── audit.py        # Runner: CLI, scoring, JSON/text output
+    ├── checks/         # Modular checks, result contract, slow-lane cache
+    │   ├── __init__.py
+    │   ├── registry.py
+    │   ├── cache.py
+    │   ├── static_scan.py
+    │   ├── plugins.py
+    │   ├── firewall.py
+    │   ├── kernel.py
+    │   ├── privileges.py
+    │   ├── keys.py
+    │   ├── desktop.py
+    │   └── network.py
+    └── tests/          # Unit tests (fake files / patched subprocess)
 ```
 
 ---
