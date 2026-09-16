@@ -69,10 +69,9 @@ with the exact manual command in `details`.
 
 ---
 
-## Future categories
+## Additional categories
 
-Other agents append rows under their section. Do not remove the placeholder
-row until the real check exists.
+Checks added after the original seven live under their own category headings below and follow the same table columns.
 
 ### Agent Surface
 
