@@ -45,6 +45,7 @@ Scans all installed QML, JavaScript, Python, Shell, and TOML files in `~/.config
 - **YAMA ptrace scope:** Verifies process memory inspection protections (`kernel.yama.ptrace_scope >= 1`) to stop unauthorized memory dumping of browser tokens or password managers.
 - **Kernel Log Restrictions:** Verifies `kernel.dmesg_restrict` to prevent unprivileged users from reading kernel debug logs.
 - **Kernel Symbol Hiding:** Checks `kernel.kptr_restrict` to prevent kernel exploit address targeting.
+- **Linux Security Modules:** Requires `yama` and `landlock` in `/sys/kernel/security/lsm`. A hardened kernel flavour and lockdown mode are reported in details. AppArmor is optional on Omarchy and is only scored when the package is installed.
 
 ### 3. Privilege Boundaries & Execution Integrity
 - **Sudoers Audit:** Detects dangerous `NOPASSWD: ALL` misconfigurations.
@@ -74,6 +75,10 @@ Omarchy symlinks shipped skills into agent skill directories and `omarchy-agent`
 - **UEFI Secure Boot:** Reads Secure Boot and Setup Mode from efivars (with a `bootctl status` fallback). Disabled Secure Boot or setup mode is a HIGH finding. There is no one-click enroll command; a bad key can brick firmware. See the [Arch wiki UEFI/Secure Boot](https://wiki.archlinux.org/title/Unified_Extensible_Firmware_Interface/Secure_Boot) page and [sbctl](https://github.com/Foxboron/sbctl).
 - **Disk encryption:** Walks `lsblk` from `/` for LUKS, flags LUKS1, and treats unencrypted swap (except zram) as MEDIUM. Unencrypted root on a VM/container is still a fail, but LOW, because the host or hypervisor often already encrypts the disk. LUKS headers are not dumped (needs root); details include the exact `cryptsetup luksDump` command.
 - **Boot chain:** Checks for a unified kernel image, ESP `fmask`/`umask` 0077, and kernel lockdown vs Secure Boot. Omarchy hardware uses limine, a UKI under `/boot/EFI/Linux/omarchy*.efi`, and a systemd initramfs with `sd-encrypt`. EFI-only checks are N/A on this ARM VM.
+### Services
+- **Network-facing exposure (slow lane):** Scores sshd, cups, docker, nginx, and similar daemons with `systemd-analyze security`. Units that every Arch system flags as UNSAFE (`udisks2`, `user@.service`) are ignored because they do not face the network.
+- **OpenSSH config:** Effective `PasswordAuthentication`, `PermitRootLogin`, and `X11Forwarding` from `sshd_config` plus drop-ins (first occurrence wins).
+- **User systemd units:** Flags `ExecStart` paths under `/tmp`, `/var/tmp`, `/dev/shm`, or `~/Downloads`.
 
 ---
 
@@ -168,6 +173,7 @@ omasecurity/
     │   ├── plugins.py
     │   ├── firewall.py
     │   ├── kernel.py
+    │   ├── lsm.py      # yama/landlock LSM baseline and auditd
     │   ├── privileges.py
     │   ├── keys.py
     │   ├── desktop.py
@@ -175,6 +181,7 @@ omasecurity/
     │   └── agents.py
     │   └── packages.py
     │   └── boot.py
+    │   └── services.py # service exposure, sshd_config, user units
     └── tests/          # Unit tests (fake files / patched subprocess)
 ```
 
