@@ -9,14 +9,11 @@ import shlex
 from pathlib import Path
 
 from . import FAST_CHECKS, SLOW_CHECKS, make_result, register_check
-from .static_scan import DEFAULT_RULES, SECRET_RULE_IDS, sanitize_snippet, scan_tree
+from .static_scan import DEFAULT_RULES, SECRET_RULE_IDS, sanitize_snippet
 
 CATEGORY = "Agent Surface"
 MAX_SKILL_FILES = 2000
 MAX_SKILL_BYTES = 512 * 1024
-SCAN_EXTS = (".md", ".sh", ".py", ".js", ".json", ".toml", ".yaml", ".yml")
-SCRIPT_EXTS = frozenset({".sh", ".py", ".js"})
-MD_EXTS = frozenset({".md"})
 
 OMARCHY_USR = Path("/usr/share/omarchy")
 AGENT_BINARIES = (
@@ -40,80 +37,112 @@ AGENT_BINARIES = (
 _AGENT_ALT = "|".join(re.escape(name) for name in AGENT_BINARIES)
 _SKIP_FLAGS = r"--dangerously-skip-permissions|--yolo|--allow-all"
 
-EXTRA_RULES = [
-    {
-        "id": "agent_auto_approve",
-        "severity": "CRITICAL",
-        "exts": None,
-        "regex": re.compile(
-            r"(?:(?:%s)\b[^\n]*(?:%s)|(?:%s)[^\n]*\b(?:%s)\b)"
-            % (_AGENT_ALT, _SKIP_FLAGS, _SKIP_FLAGS, _AGENT_ALT)
-        ),
-        "title": "Agent launched with auto-approve / skip-permissions flag",
-        "explanation": (
-            "A skill script invokes an agent binary with --yolo, --allow-all, "
-            "or --dangerously-skip-permissions."
-        ),
-    },
-    {
-        "id": "prompt_injection",
-        "severity": "HIGH",
-        "exts": MD_EXTS,
-        "regex": re.compile(
-            r"ignore (all )?(previous|prior|above) instructions"
-            r"|do not (tell|inform|show) the user"
-            r"|without (telling|asking) the user"
-            r"|exfiltrat",
-            re.IGNORECASE,
-        ),
-        "title": "Prompt-injection phrasing in skill markdown",
-        "explanation": (
-            "Skill instructions tell the agent to hide actions from the user "
-            "or to ignore prior instructions."
-        ),
-    },
-    {
-        "id": "skill_sensitive_write",
-        "severity": "HIGH",
-        "exts": SCRIPT_EXTS,
-        "regex": re.compile(
-            r"(?:~|\$\{?HOME\}?)/\.ssh\b"
-            r"|(?:~|\$\{?HOME\}?)/\.bashrc\b"
-            r"|(?:~|\$\{?HOME\}?)/\.zshrc\b"
-            r"|(?:~|\$\{?HOME\}?)/\.config/omarchy/hooks"
-            r"|(?:~|\$\{?HOME\}?)/\.claude/settings[^/\s\"']*\.json"
-            r"|(?<![A-Za-z0-9_])/etc/"
-        ),
-        "title": "Skill script writes to a sensitive path",
-        "explanation": (
-            "Script content references ~/.ssh, shell rc files, Omarchy hooks, "
-            "Claude settings, or /etc."
-        ),
-    },
-    {
-        "id": "insecure_fetch",
-        "severity": "HIGH",
-        "exts": None,
-        "regex": re.compile(
-            r"(?:curl|wget)\b[^\n]*"
-            r"(?:https?://\d{1,3}(?:\.\d{1,3}){3}\b|http://|"
-            r"(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}\b)",
-            re.IGNORECASE,
-        ),
-        "title": "curl/wget to a bare IPv4 address or non-https URL",
-        "explanation": "Downloads from cleartext HTTP or a literal IP address.",
-    },
-    {
-        "id": "skill_obfuscation",
-        "severity": "MEDIUM",
-        "exts": SCRIPT_EXTS,
-        "regex": re.compile(r"base64\s+-d\b|python(?:3)?\s+-c\b", re.IGNORECASE),
-        "title": "Obfuscated or inline code in a skill script",
-        "explanation": "Skill script uses base64 -d or python -c.",
-    },
+def _copy_rule(rule, severity=None):
+    copied = dict(rule)
+    if severity is not None:
+        copied["severity"] = severity
+    return copied
+
+
+def _default_rule(rule_id):
+    for rule in DEFAULT_RULES:
+        if rule["id"] == rule_id:
+            return rule
+    raise KeyError(rule_id)
+
+
+AGENT_AUTO_APPROVE = {
+    "id": "agent_auto_approve",
+    "severity": "CRITICAL",
+    "regex": re.compile(
+        r"(?:(?:%s)\b[^\n]*(?:%s)|(?:%s)[^\n]*\b(?:%s)\b)"
+        % (_AGENT_ALT, _SKIP_FLAGS, _SKIP_FLAGS, _AGENT_ALT)
+    ),
+    "title": "Agent launched with auto-approve / skip-permissions flag",
+    "explanation": (
+        "A skill script invokes an agent binary with --yolo, --allow-all, "
+        "or --dangerously-skip-permissions."
+    ),
+}
+PROMPT_INJECTION = {
+    "id": "prompt_injection",
+    "severity": "LOW",
+    "regex": re.compile(
+        r"ignore (all )?(previous|prior|above) instructions"
+        r"|do not (tell|inform|show) the user"
+        r"|without (telling|asking) the user"
+        r"|exfiltrat",
+        re.IGNORECASE,
+    ),
+    "title": "Prompt-injection phrasing in skill markdown",
+    "explanation": (
+        "Skill instructions tell the agent to hide actions from the user "
+        "or to ignore prior instructions."
+    ),
+}
+SKILL_SENSITIVE_WRITE = {
+    "id": "skill_sensitive_write",
+    "severity": "HIGH",
+    "regex": re.compile(
+        r"(?:~|\$\{?HOME\}?)/\.ssh\b"
+        r"|(?:~|\$\{?HOME\}?)/\.bashrc\b"
+        r"|(?:~|\$\{?HOME\}?)/\.zshrc\b"
+        r"|(?:~|\$\{?HOME\}?)/\.config/omarchy/hooks"
+        r"|(?:~|\$\{?HOME\}?)/\.claude/settings[^/\s\"']*\.json"
+        r"|(?<![A-Za-z0-9_])/etc/"
+    ),
+    "title": "Skill script writes to a sensitive path",
+    "explanation": (
+        "Script content references ~/.ssh, shell rc files, Omarchy hooks, "
+        "Claude settings, or /etc."
+    ),
+}
+INSECURE_FETCH = {
+    "id": "insecure_fetch",
+    "severity": "HIGH",
+    "regex": re.compile(
+        r"(?:curl|wget)\b[^\n]*"
+        r"(?:https?://\d{1,3}(?:\.\d{1,3}){3}\b|http://|"
+        r"(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}\b)",
+        re.IGNORECASE,
+    ),
+    "title": "curl/wget to a bare IPv4 address or non-https URL",
+    "explanation": "Downloads from cleartext HTTP or a literal IP address.",
+}
+SKILL_OBFUSCATION = {
+    "id": "skill_obfuscation",
+    "severity": "MEDIUM",
+    "regex": re.compile(r"base64\s+-d\b|python(?:3)?\s+-c\b", re.IGNORECASE),
+    "title": "Obfuscated or inline code in a skill script",
+    "explanation": "Skill script uses base64 -d or python -c.",
+}
+
+# Scripts: full DEFAULT_RULES plus agent extras. Markdown never uses silent_sudo,
+# obfuscated_exec, or skill_sensitive_write.
+SCRIPT_RULES = list(DEFAULT_RULES) + [
+    AGENT_AUTO_APPROVE,
+    SKILL_SENSITIVE_WRITE,
+    INSECURE_FETCH,
+    SKILL_OBFUSCATION,
 ]
-_EXTRA_BY_ID = {rule["id"]: rule for rule in EXTRA_RULES}
-SKILL_RULES = list(DEFAULT_RULES) + EXTRA_RULES
+INSTRUCTION_RULES = [
+    AGENT_AUTO_APPROVE,
+    _copy_rule(_default_rule("pipe_to_shell"), "HIGH"),
+    _copy_rule(INSECURE_FETCH, "MEDIUM"),
+    PROMPT_INJECTION,
+]
+CONFIG_RULES = [
+    _default_rule("private_key"),
+    _default_rule("api_secret"),
+]
+
+SKIP_SCAN_DIRS = frozenset({
+    ".git", "node_modules", "test", "tests", "references", "examples", "docs",
+})
+SKIP_FILE_PREFIXES = ("README", "CHANGELOG", "LICENSE")
+MARKETPLACE_SUBDIRS = ("plugins", "external_plugins")
+INSTRUCTION_ROOTS = frozenset({".claude/commands", ".claude/agents"})
+VENDOR_ROOTS = frozenset({".cursor/skills-cursor"})
 
 SKILL_ROOT_RELS = (
     ".agents/skills",
@@ -124,7 +153,6 @@ SKILL_ROOT_RELS = (
     ".claude/commands",
     ".claude/agents",
     ".claude/plugins/marketplaces",
-    ".codex/skills/.system",
 )
 
 MCP_FILE_RELS = (
@@ -219,14 +247,51 @@ def _flag(
     }
 
 
-def _filter_items(items, skill_name, root_label):
+def _skip_named_file(path):
+    upper = Path(path).name.upper()
+    return any(upper.startswith(prefix) for prefix in SKIP_FILE_PREFIXES)
+
+
+def _is_instruction_file(filepath, skill_dir, root_rel):
+    filepath = Path(filepath)
+    skill_dir = Path(skill_dir)
+    name = filepath.name
+    if name == "SKILL.md" or name.lower() == "skill.md":
+        return True
+    if root_rel in INSTRUCTION_ROOTS:
+        return True
+    try:
+        base = skill_dir if skill_dir.is_dir() else skill_dir.parent
+        rel_parts = filepath.resolve().relative_to(base.resolve()).parts
+    except (ValueError, OSError):
+        rel_parts = filepath.parts
+    if "commands" in rel_parts or "agents" in rel_parts:
+        return True
+    if filepath.suffix.lower() != ".md":
+        return False
+    parent = filepath.parent
+    if skill_dir.is_file():
+        return parent == skill_dir.parent
+    return parent == skill_dir
+
+
+def _rules_for(filepath, skill_dir, root_rel):
+    filepath = Path(filepath)
+    if _skip_named_file(filepath):
+        return None
+    if _is_instruction_file(filepath, skill_dir, root_rel):
+        return INSTRUCTION_RULES
+    ext = filepath.suffix.lower()
+    if ext in {".sh", ".py", ".js"}:
+        return SCRIPT_RULES
+    if ext in {".json", ".toml", ".yaml", ".yml"}:
+        return CONFIG_RULES
+    return None
+
+
+def _format_items(items, skill_name, root_label):
     kept = []
     for item in items:
-        rule = _EXTRA_BY_ID.get(item.get("rule_id"))
-        if rule and rule.get("exts"):
-            ext = Path(item["file"]).suffix.lower()
-            if ext not in rule["exts"]:
-                continue
         rel = item["file"]
         kept.append(
             _flag(
@@ -242,12 +307,9 @@ def _filter_items(items, skill_name, root_label):
     return kept
 
 
-def _scan_file(filepath, rules, max_bytes):
-    """Apply scan_tree rules to a single file (top-level skill that is not a dir)."""
+def _apply_rules(filepath, rel, rules, max_bytes):
     filepath = Path(filepath)
-    ext = filepath.suffix.lower()
-    wanted = {e if e.startswith(".") else "." + e for e in SCAN_EXTS}
-    if ext not in wanted:
+    if not rules:
         return [], 0
     try:
         size = filepath.stat().st_size
@@ -277,7 +339,7 @@ def _scan_file(filepath, rules, max_bytes):
                     else sanitize_snippet(sline, 80)
                 )
                 flagged.append({
-                    "file": filepath.name,
+                    "file": rel,
                     "line": line_no,
                     "severity": rule["severity"],
                     "title": rule["title"],
@@ -289,26 +351,93 @@ def _scan_file(filepath, rules, max_bytes):
     return flagged, 1
 
 
-def _scan_entry(path, remaining):
+def _scan_one_file(filepath, skill_dir, root_rel, max_bytes):
+    filepath = Path(filepath)
+    rules = _rules_for(filepath, skill_dir, root_rel)
+    if not rules:
+        return [], 0
+    try:
+        rel = str(filepath.relative_to(skill_dir if Path(skill_dir).is_dir() else filepath.parent))
+    except ValueError:
+        rel = filepath.name
+    return _apply_rules(filepath, rel, rules, max_bytes)
+
+
+def _scan_entry(path, remaining, root_rel):
     path = Path(path)
     if remaining <= 0:
         return [], 0
-    if path.is_dir():
-        return scan_tree(
-            path,
-            SCAN_EXTS,
-            SKILL_RULES,
-            remaining,
-            MAX_SKILL_BYTES,
-            follow_symlinks=False,
-        )
     if path.is_file():
-        return _scan_file(path, SKILL_RULES, MAX_SKILL_BYTES)
-    return [], 0
+        return _scan_one_file(path, path, root_rel, MAX_SKILL_BYTES)
+    if not path.is_dir():
+        return [], 0
+    flagged = []
+    scanned = 0
+    for dirpath, dirnames, filenames in os.walk(path, followlinks=False):
+        kept = []
+        for name in dirnames:
+            if name in SKIP_SCAN_DIRS or name.startswith("."):
+                continue
+            child = Path(dirpath) / name
+            if child.is_symlink():
+                continue
+            kept.append(name)
+        dirnames[:] = kept
+        for filename in filenames:
+            if scanned >= remaining:
+                return flagged, scanned
+            filepath = Path(dirpath) / filename
+            if filepath.is_symlink():
+                continue
+            items, n = _scan_one_file(filepath, path, root_rel, MAX_SKILL_BYTES)
+            scanned += n
+            flagged.extend(items)
+    return flagged, scanned
+
+
+def _iter_skill_entries(rel, root):
+    root = Path(root)
+    if rel == ".claude/plugins/marketplaces":
+        try:
+            markets = sorted(root.iterdir(), key=lambda p: p.name)
+        except OSError:
+            return
+        for market in markets:
+            if market.name.startswith(".") or not market.is_dir():
+                continue
+            for sub in MARKETPLACE_SUBDIRS:
+                folder = market / sub
+                if not folder.is_dir():
+                    continue
+                try:
+                    plugins = sorted(folder.iterdir(), key=lambda p: p.name)
+                except OSError:
+                    continue
+                for plugin in plugins:
+                    if plugin.name.startswith("."):
+                        continue
+                    yield "%s:%s" % (market.name, plugin.name), plugin
+        return
+    try:
+        entries = sorted(root.iterdir(), key=lambda p: p.name)
+    except OSError:
+        return
+    for entry in entries:
+        if entry.name.startswith("."):
+            if rel == ".codex/skills" and entry.name == ".system":
+                yield entry.name, entry
+            continue
+        yield entry.name, entry
+
+
+def _is_vendor(rel, name):
+    if rel in VENDOR_ROOTS:
+        return True
+    return rel == ".codex/skills" and name == ".system"
 
 
 def _classify(entry, home):
-    """Return (kind, target_path). kind is omarchy-shipped, third-party, outside, broken."""
+    """Return (kind, target_path). kind is omarchy-shipped, vendor-shipped, third-party, outside, broken."""
     home = Path(home)
     if entry.is_symlink():
         raw = Path(os.path.join(str(entry.parent), os.readlink(str(entry))))
@@ -332,6 +461,18 @@ def _classify(entry, home):
     return "third-party", target
 
 
+def _dedupe_flags(flagged):
+    seen = set()
+    out = []
+    for item in flagged:
+        key = (item.get("file"), item.get("line"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
 def _severity_from_flags(flagged):
     if any(x["severity"] == "CRITICAL" for x in flagged):
         return "critical"
@@ -344,10 +485,14 @@ def _severity_from_flags(flagged):
     return "info"
 
 
-def _deduct(flagged, *, critical=8, high=4, medium=2, max_score=15):
+def _deduct(flagged, *, critical=8, high=4, medium=2, max_score=15, cap=None):
     c = sum(1 for x in flagged if x["severity"] == "CRITICAL")
     h = sum(1 for x in flagged if x["severity"] == "HIGH")
     m = sum(1 for x in flagged if x["severity"] == "MEDIUM")
+    if cap is not None:
+        c = min(cap, c)
+        h = min(cap, h)
+        m = min(cap, m)
     return max(0, max_score - c * critical - h * high - m * medium)
 
 
@@ -386,6 +531,7 @@ def check_agent_skills(*, home=None):
     details = []
     total_skills = 0
     shipped = 0
+    vendor = 0
     third = 0
     remaining = MAX_SKILL_FILES
     per_root = []
@@ -393,28 +539,27 @@ def check_agent_skills(*, home=None):
     for rel, root in roots:
         root_label = "~/" + rel
         count = 0
-        try:
-            entries = sorted(root.iterdir(), key=lambda p: p.name)
-        except OSError as exc:
-            details.append("%s: unreadable (%s)" % (root_label, exc))
-            continue
-        for entry in entries:
+        for name, entry in _iter_skill_entries(rel, root):
             count += 1
             total_skills += 1
             kind, target = _classify(entry, home)
+            if kind not in {"broken", "outside"} and _is_vendor(rel, name):
+                kind = "vendor-shipped"
             if kind == "omarchy-shipped":
                 shipped += 1
+            elif kind == "vendor-shipped":
+                vendor += 1
             else:
                 third += 1
                 details.append(
                     "%s in %s -> %s"
-                    % (entry.name, root_label, _display(target, home) if kind != "broken" else str(target))
+                    % (name, root_label, _display(target, home) if kind != "broken" else str(target))
                 )
             if kind == "outside":
                 flagged.append(
                     _flag(
-                        entry.name,
-                        root_label + "/" + entry.name,
+                        name,
+                        root_label + "/" + name,
                         "HIGH",
                         "skill symlink points outside home and Omarchy",
                         "Top-level skill symlink resolves outside $HOME and /usr/share/omarchy.",
@@ -424,8 +569,8 @@ def check_agent_skills(*, home=None):
             elif kind == "broken":
                 flagged.append(
                     _flag(
-                        entry.name,
-                        root_label + "/" + entry.name,
+                        name,
+                        root_label + "/" + name,
                         "MEDIUM",
                         "Broken skill symlink",
                         "Top-level skill entry is a symlink whose target does not exist.",
@@ -434,17 +579,25 @@ def check_agent_skills(*, home=None):
                 )
             scan_path = target if kind != "broken" else None
             if scan_path is not None and remaining > 0:
-                items, n = _scan_entry(scan_path, remaining)
+                items, n = _scan_entry(scan_path, remaining, rel)
                 remaining -= n
-                flagged.extend(_filter_items(items, entry.name, root_label))
+                flagged.extend(_format_items(items, name, root_label))
         per_root.append("%s: %d" % (root_label, count))
 
+    flagged = _dedupe_flags(flagged)
+    low_hits = [item for item in flagged if item["severity"] == "LOW"]
+    scored = [item for item in flagged if item["severity"] in {"CRITICAL", "HIGH", "MEDIUM"}]
     details = per_root + details
-    score = _deduct(flagged, critical=8, high=4, medium=2, max_score=15)
-    passed = len(flagged) == 0
+    if low_hits:
+        details.append(
+            "prompt-injection notes (LOW, no score impact): %d"
+            % len(low_hits)
+        )
+    score = _deduct(scored, critical=6, high=3, medium=1, max_score=15, cap=2)
+    passed = len(scored) == 0
     desc = (
-        "%d skills across %d agent dirs, %d omarchy-shipped, %d third-party"
-        % (total_skills, len(roots), shipped, third)
+        "%d skills: %d omarchy-shipped, %d vendor-shipped, %d third-party"
+        % (total_skills, shipped, vendor, third)
     )
     rec = None
     if not passed:
