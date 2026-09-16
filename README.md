@@ -60,6 +60,11 @@ Scans all installed QML, JavaScript, Python, Shell, and TOML files in `~/.config
 - **GnuPG Keyring:** Enforces `700` permissions on `~/.gnupg/`.
 - **Session Locking:** Verifies automated idle screen lock timeouts in `hypridle.conf` and `shell.json`.
 
+### 6. Agent Surface
+Omarchy symlinks shipped skills into agent skill directories and `omarchy-agent` starts the default agent with approval prompts disabled. These checks inventory that unattended surface:
+- **Skills inventory (`agent_skills`, slow lane):** Counts Omarchy-shipped, vendor-shipped, and third-party skills across Claude, Codex, Cursor, Pi, and related roots. Marketplace plugins are inventoried as individual entries. Script, instruction, and config files use different rule sets; README/CHANGELOG/LICENSE and `references/`/`examples/`/`docs/` are skipped. Flags symlinks that point outside `$HOME`/`/usr/share/omarchy`, broken links, auto-approve flags (`--yolo`, `--allow-all`, `--dangerously-skip-permissions`) next to an agent binary, pipe-to-shell, writes to `~/.ssh` / shell rc / Omarchy hooks / `/etc`, and `curl`/`wget` to HTTP or a bare IPv4 address. Prompt-injection phrasing in markdown is LOW with no score deduction. Score deducts at most 2 hits per severity (CRITICAL 6, HIGH 3, MEDIUM 1).
+- **MCP, hooks, and permissions (`agent_mcp`):** Inventories MCP servers from Claude, Codex, Cursor, Gemini, OpenCode, and Copilot configs. Flags unpinned `npx`/`uvx`/`bunx`/`pipx run` stdio servers, credential-like env keys (key names only), non-https remote URLs, unrestricted `permissions.allow` Bash entries, and `enableAllProjectMcpServers`. Reports the default agent from `~/.config/omarchy/defaults/agent` and the auto-approve flag `omarchy-agent` launches it with.
+
 ---
 
 ## User Interface & Features
@@ -156,7 +161,8 @@ omasecurity/
     │   ├── privileges.py
     │   ├── keys.py
     │   ├── desktop.py
-    │   └── network.py
+    │   ├── network.py
+    │   └── agents.py
     └── tests/          # Unit tests (fake files / patched subprocess)
 ```
 
