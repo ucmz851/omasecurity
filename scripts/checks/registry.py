@@ -15,3 +15,4 @@ from . import desktop  # noqa: F401
 from . import network  # noqa: F401
 from . import agents  # noqa: F401
 from . import packages  # noqa: F401
+from . import boot  # noqa: F401

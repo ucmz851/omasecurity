@@ -70,6 +70,10 @@ Omarchy symlinks shipped skills into agent skill directories and `omarchy-agent`
 - **Update recency:** Reads `/var/log/pacman.log` (no `pacman -Sy`) and recommends `omarchy update` when the last full upgrade is stale.
 - **Inventory (slow lane):** One local `pacman -Sl` plus foreign (`pacman -Qmq`) counts; a large foreign set is called out because unsigned local builds widen the supply chain.
 - **arch-audit (slow lane):** Optional CVE scan from the extra repo; missing tool or network failure is N/A, not a failed check.
+### 6. Boot & Disk
+- **UEFI Secure Boot:** Reads Secure Boot and Setup Mode from efivars (with a `bootctl status` fallback). Disabled Secure Boot or setup mode is a HIGH finding. There is no one-click enroll command; a bad key can brick firmware. See the [Arch wiki UEFI/Secure Boot](https://wiki.archlinux.org/title/Unified_Extensible_Firmware_Interface/Secure_Boot) page and [sbctl](https://github.com/Foxboron/sbctl).
+- **Disk encryption:** Walks `lsblk` from `/` for LUKS, flags LUKS1, and treats unencrypted swap (except zram) as MEDIUM. Unencrypted root on a VM/container is still a fail, but LOW, because the host or hypervisor often already encrypts the disk. LUKS headers are not dumped (needs root); details include the exact `cryptsetup luksDump` command.
+- **Boot chain:** Checks for a unified kernel image, ESP `fmask`/`umask` 0077, and kernel lockdown vs Secure Boot. Omarchy hardware uses limine, a UKI under `/boot/EFI/Linux/omarchy*.efi`, and a systemd initramfs with `sd-encrypt`. EFI-only checks are N/A on this ARM VM.
 
 ---
 
@@ -170,6 +174,7 @@ omasecurity/
     │   ├── network.py
     │   └── agents.py
     │   └── packages.py
+    │   └── boot.py
     └── tests/          # Unit tests (fake files / patched subprocess)
 ```
 
