@@ -13,3 +13,4 @@ from . import privileges  # noqa: F401
 from . import keys  # noqa: F401
 from . import desktop  # noqa: F401
 from . import network  # noqa: F401
+from . import agents  # noqa: F401

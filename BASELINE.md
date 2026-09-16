@@ -73,9 +73,20 @@ row until the real check exists.
 
 ### Agent Surface
 
+Omarchy's migration
+[`migrations/1786539345.sh`](https://github.com/omacom/omarchy/blob/quattro/migrations/1786539345.sh)
+symlinks shipped skills into `~/.agents/skills`, `~/.claude/skills`,
+`~/.codex/skills`, and `~/.pi/agent/skills`.
+[`omarchy-agent`](https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-agent)
+then launches the default agent with approval prompts disabled
+(`claude --permission-mode auto`, `opencode --auto`, `gemini --yolo`,
+`copilot --allow-all`, `crush --yolo`). Anything in those trees is loaded
+into an unattended agent.
+
 | id | category | weight | what is verified | pass condition | why it matters | applicable when | lane | references |
 | :--- | :--- | ---: | :--- | :--- | :--- | :--- | :--- | :--- |
-| _placeholder_ | Agent Surface | — | _(agent fills)_ | _(agent fills)_ | _(agent fills)_ | _(agent fills)_ | slow? | — |
+| `agent_skills` | Agent Surface | 15 | Top-level skills under `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`, `~/.pi/agent/skills`, `~/.cursor/skills-cursor`, `~/.claude/commands`, `~/.claude/agents`, `~/.claude/plugins/marketplaces`, `~/.codex/skills/.system`. Classifies Omarchy-shipped vs third-party vs outside-home symlinks. Static-scans trees (2000 files, 512KB) for auto-approve flags, prompt injection, sensitive writes, insecure curl/wget, `base64 -d` / `python -c` | No broken/outside symlinks and no CRITICAL/HIGH/MEDIUM scan hits | Unattended agents load every skill in those directories | At least one skill root exists | slow | [1786539345.sh](https://github.com/omacom/omarchy/blob/quattro/migrations/1786539345.sh), [omarchy-agent](https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-agent) |
+| `agent_mcp` | Agent Surface | 10 | MCP servers in `~/.claude.json`, Claude/Cursor/Gemini/OpenCode/Copilot settings, `~/.codex/config.toml`; unpinned `npx`/`uvx`/`bunx`/`pipx run`; credential-like env keys (names only); non-https remote URLs; `permissions.allow` Bash/`*`; `enableAllProjectMcpServers`; hooks vs `DEFAULT_RULES`. Details include the default agent and `omarchy-agent` auto-approve flag | No HIGH/MEDIUM findings | MCP servers and auto-approve launches run with the user's credentials | At least one of the listed config files exists | fast | [omarchy-agent](https://github.com/omacom/omarchy/blob/quattro/bin/omarchy-agent) |
 
 ### Packages
 
