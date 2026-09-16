@@ -71,7 +71,7 @@ BarWidget {
     foreground: getStatusColor(panelLoader.item)
     slotSize: Style.bar.statusSlot
     tooltipText: panelLoader.item
-      ? "OmaSecurity: " + panelLoader.item.score + "% — " + panelLoader.item.statusLabel
+      ? "OmaSecurity: " + panelLoader.item.score + "% — " + panelLoader.item.statusLabel + (panelLoader.item.lastScanTime ? " · " + panelLoader.item.lastScanTime : "")
       : "OmaSecurity"
 
     onPressed: function(b) {
