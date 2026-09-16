@@ -45,6 +45,7 @@ Scans all installed QML, JavaScript, Python, Shell, and TOML files in `~/.config
 - **YAMA ptrace scope:** Verifies process memory inspection protections (`kernel.yama.ptrace_scope >= 1`) to stop unauthorized memory dumping of browser tokens or password managers.
 - **Kernel Log Restrictions:** Verifies `kernel.dmesg_restrict` to prevent unprivileged users from reading kernel debug logs.
 - **Kernel Symbol Hiding:** Checks `kernel.kptr_restrict` to prevent kernel exploit address targeting.
+- **Linux Security Modules:** Requires `yama` and `landlock` in `/sys/kernel/security/lsm`. A hardened kernel flavour and lockdown mode are reported in details. AppArmor is optional on Omarchy and is only scored when the package is installed.
 
 ### 3. Privilege Boundaries & Execution Integrity
 - **Sudoers Audit:** Detects dangerous `NOPASSWD: ALL` misconfigurations.
@@ -59,6 +60,11 @@ Scans all installed QML, JavaScript, Python, Shell, and TOML files in `~/.config
 - **SSH Directory & Private Keys:** Enforces `700` on `~/.ssh` and `600` on private keys.
 - **GnuPG Keyring:** Enforces `700` permissions on `~/.gnupg/`.
 - **Session Locking:** Verifies automated idle screen lock timeouts in `hypridle.conf` and `shell.json`.
+
+### Services
+- **Network-facing exposure (slow lane):** Scores sshd, cups, docker, nginx, and similar daemons with `systemd-analyze security`. Units that every Arch system flags as UNSAFE (`udisks2`, `user@.service`) are ignored because they do not face the network.
+- **OpenSSH config:** Effective `PasswordAuthentication`, `PermitRootLogin`, and `X11Forwarding` from `sshd_config` plus drop-ins (first occurrence wins).
+- **User systemd units:** Flags `ExecStart` paths under `/tmp`, `/var/tmp`, `/dev/shm`, or `~/Downloads`.
 
 ---
 
@@ -153,10 +159,12 @@ omasecurity/
     │   ├── plugins.py
     │   ├── firewall.py
     │   ├── kernel.py
+    │   ├── lsm.py      # yama/landlock LSM baseline and auditd
     │   ├── privileges.py
     │   ├── keys.py
     │   ├── desktop.py
-    │   └── network.py
+    │   ├── network.py
+    │   └── services.py # service exposure, sshd_config, user units
     └── tests/          # Unit tests (fake files / patched subprocess)
 ```
 
