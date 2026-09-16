@@ -64,7 +64,7 @@ Scans all installed QML, JavaScript, Python, Shell, and TOML files in `~/.config
 - **Repository trust:** Parses `/etc/pacman.conf` (and `/etc/pacman.d` SigLevel overrides) and flags network repos whose effective `SigLevel` contains `TrustAll`, `Never`, or package-level `Optional`. The Omarchy default is `Required DatabaseOptional`.
 - **Keyrings:** Checks `archlinux-keyring` / `omarchy-keyring` versions and whether Omarchy signing key `40DFB630FF42BCFFB047046CF0134EE680CAC571` is in the pacman keyring.
 - **Update recency:** Reads `/var/log/pacman.log` (no `pacman -Sy`) and recommends `omarchy update` when the last full upgrade is stale.
-- **Inventory:** Local DB counts per repo plus foreign (`pacman -Qmq`) packages; a large foreign set is called out because unsigned local builds widen the supply chain.
+- **Inventory (slow lane):** One local `pacman -Sl` plus foreign (`pacman -Qmq`) counts; a large foreign set is called out because unsigned local builds widen the supply chain.
 - **arch-audit (slow lane):** Optional CVE scan from the extra repo; missing tool or network failure is N/A, not a failed check.
 
 ---

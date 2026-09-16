@@ -109,8 +109,9 @@ class TestPacmanTrust(unittest.TestCase):
             self.assertIn("core: Optional (include ", detail_text)
             self.assertIn(str(pacman_d / "custom"), detail_text)
             self.assertIn("local-file: TrustAll (repo override)", detail_text)
-            self.assertIn("pacman-stable.conf", result["fix_cmd"])
-            self.assertNotIn("sudo", (result["fix_cmd"] or "").split())
+            self.assertIsNone(result["fix_cmd"])
+            self.assertIn("SigLevel = Required DatabaseOptional", result["recommendation"])
+            self.assertIn("pacman-stable.conf", result["recommendation"])
 
     def test_file_url_trustall_is_not_a_finding(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,6 +124,8 @@ class TestPacmanTrust(unittest.TestCase):
             self.assertTrue(result["passed"])
             self.assertEqual(result["score"], 10)
             self.assertEqual(result["severity"], "info")
+            self.assertIsNone(result["fix_cmd"])
+            self.assertIsNone(result["recommendation"])
 
     def test_options_weaker_than_default(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -179,6 +182,10 @@ class TestPacmanKeyring(unittest.TestCase):
             self.assertTrue(result["passed"])
             self.assertEqual(result["score"], 5)
             self.assertIn("pacman-key --list-keys " + OMARCHY_KEY_ID, "\n".join(result["details"]))
+            key_timeouts = [timeout for argv, timeout in run.calls if argv and argv[0] == "pacman-key"]
+            gpg_timeouts = [timeout for argv, timeout in run.calls if argv and argv[0] == "gpg"]
+            self.assertEqual(key_timeouts, [0.15])
+            self.assertEqual(gpg_timeouts, [0.3])
 
     def test_pacman_missing_is_not_applicable(self):
         run = FakeRun()
@@ -226,6 +233,17 @@ class TestPacmanUpdates(unittest.TestCase):
             self.assertEqual(result["score"], 0)
             self.assertEqual(result["recommendation"], "run `omarchy update`")
 
+    def test_recent_upgrade_has_no_recommendation(self):
+        now = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
+        ts = now.strftime("%Y-%m-%dT%H:%M:%S+0000")
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "pacman.log"
+            log.write_text(f"[{ts}] [PACMAN] starting full system upgrade\n")
+            result = check_pacman_updates(log_path=log, now=now)
+            self.assertTrue(result["passed"])
+            self.assertEqual(result["score"], 5)
+            self.assertIsNone(result["recommendation"])
+
     def test_missing_log_is_not_applicable(self):
         result = check_pacman_updates(log_path="/no/such/pacman.log")
         self.assertFalse(result["applicable"])
@@ -239,16 +257,16 @@ class TestPacmanUpdates(unittest.TestCase):
             self.assertTrue(result["passed"])
             self.assertEqual(result["score"], 5)
             self.assertIn("unknown", result["description"].lower())
+            self.assertEqual(result["recommendation"], "run `omarchy update`")
 
 
 class TestPacmanInventory(unittest.TestCase):
-    def _run_for(self, foreign_names, repos):
+    def _run_for(self, foreign_names, sl_output):
         run = FakeRun()
         installed = ["linux", "pacman"] + list(foreign_names)
         run.add(["pacman", "-Qq"], stdout="\n".join(installed) + "\n")
         run.add(["pacman", "-Qmq"], stdout="\n".join(foreign_names) + "\n")
-        for repo, lines in repos.items():
-            run.add(["pacman", "-Sl", repo], stdout=lines)
+        run.add(["pacman", "-Sl"], stdout=sl_output)
         return run
 
     def test_counts_and_foreign_sample(self):
@@ -256,17 +274,20 @@ class TestPacmanInventory(unittest.TestCase):
             conf, pacman_d = _write_conf(tmp)
             run = self._run_for(
                 ["my-aur-pkg"],
-                {
-                    "core": "core linux 1-1 [installed]\ncore glibc 1-1\n",
-                    "omarchy": "omarchy omarchy-chromium 1-1 [installed]\n",
-                    "local-file": "local-file foo 1-1\n",
-                },
+                "core linux 1-1 [installed]\n"
+                "core glibc 1-1\n"
+                "omarchy omarchy-chromium 1-1 [installed]\n"
+                "local-file foo 1-1\n",
             )
             result = check_pacman_inventory(conf_path=conf, include_root=pacman_d, run=run)
             self.assertTrue(result["passed"])
             self.assertEqual(result["score"], 5)
+            self.assertEqual(result["lane"], "slow")
+            sl_calls = [argv for argv, _timeout in run.calls if argv[:2] == ("pacman", "-Sl")]
+            self.assertEqual(sl_calls, [("pacman", "-Sl")])
             details = "\n".join(result["details"])
             self.assertIn("core=1", details)
+            self.assertEqual(sum(1 for line in result["details"] if line.startswith("omarchy=")), 1)
             self.assertIn("omarchy=1", details)
             self.assertIn("foreign=1", details)
             self.assertIn("my-aur-pkg", details)
@@ -275,17 +296,11 @@ class TestPacmanInventory(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             conf, pacman_d = _write_conf(tmp)
             foreign = ["foreign-%02d" % i for i in range(26)]
-            run = self._run_for(
-                foreign,
-                {
-                    "core": "",
-                    "omarchy": "",
-                    "local-file": "",
-                },
-            )
+            run = self._run_for(foreign, "core linux 1-1\nomarchy omarchy-chromium 1-1\nlocal-file foo 1-1\n")
             result = check_pacman_inventory(conf_path=conf, include_root=pacman_d, run=run)
             self.assertFalse(result["passed"])
             self.assertEqual(result["score"], 3)
+            self.assertEqual(result["lane"], "slow")
             self.assertIn("unsigned", result["description"].lower())
             details = "\n".join(result["details"])
             self.assertIn("foreign-00", details)

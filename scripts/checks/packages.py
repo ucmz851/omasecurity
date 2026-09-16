@@ -25,8 +25,8 @@ GPG_HOMEDIR = "/etc/pacman.d/gnupg"
 FOREIGN_WARN_THRESHOLD = 25
 HIGH_DEDUCT = 5
 MEDIUM_DEDUCT = 3
-KEY_LIST_TIMEOUT_S = 0.04
-GPG_LIST_TIMEOUT_S = 0.2
+KEY_LIST_TIMEOUT_S = 0.15
+GPG_LIST_TIMEOUT_S = 0.3
 ARCH_AUDIT_TIMEOUT_S = 20.0
 
 REFS_SIGNING = [
@@ -510,7 +510,6 @@ def check_pacman_trust(*, conf_path=None, include_root=None):
     if passed:
         desc = "All configured pacman repositories use Required signatures (DatabaseOptional)."
         rec = None
-        fix = None
     else:
         names = ", ".join(flagged_sections) if flagged_sections else "named sections"
         desc = (
@@ -519,15 +518,13 @@ def check_pacman_trust(*, conf_path=None, include_root=None):
             + "."
         )
         rec = (
-            "Set repository SigLevel to Required DatabaseOptional (TrustedOnly). "
-            "See the shipped Omarchy default at " + SHIPPED_DEFAULT + "."
-        )
-        fix = (
-            "Edit SigLevel in /etc/pacman.conf for: "
+            "In the "
             + names
-            + " (reference "
+            + " section(s) of /etc/pacman.conf, set "
+            "`SigLevel = Required DatabaseOptional`. See the shipped Omarchy "
+            "default at "
             + SHIPPED_DEFAULT
-            + ")"
+            + "."
         )
     return make_result(
         id="pacman_trust",
@@ -540,7 +537,7 @@ def check_pacman_trust(*, conf_path=None, include_root=None):
         description=desc,
         details=details,
         recommendation=rec,
-        fix_cmd=fix,
+        fix_cmd=None,
         refs=REFS_SIGNING,
     )
 
@@ -705,6 +702,7 @@ def check_pacman_updates(*, log_path=None, now=None):
 
     score = max(0, 5 - HIGH_DEDUCT * high - MEDIUM_DEDUCT * medium)
     passed = high == 0 and medium == 0
+    rec = None if passed else "run `omarchy update`"
     return make_result(
         id="pacman_updates",
         category=CATEGORY,
@@ -715,32 +713,36 @@ def check_pacman_updates(*, log_path=None, now=None):
         severity=severity,
         description=desc,
         details=details,
-        recommendation="run `omarchy update`",
+        recommendation=rec,
         refs=REFS_UPDATES,
     )
 
 
-def _repo_installed_counts(run, repo_names):
+def _sl_installed_counts(run):
+    """One `pacman -Sl` (all repos); group installed counts by the first column."""
+    res = run(["pacman", "-Sl"], timeout=1.5)
+    if res.returncode == 127:
+        return None, res
     counts = {}
-    for name in repo_names:
-        res = run(["pacman", "-Sl", name], timeout=1.5)
-        if res.returncode == 127:
-            return None, res
-        installed = 0
-        if res.returncode == 0:
-            for line in (res.stdout or "").splitlines():
-                if "[installed]" in line:
-                    installed += 1
-        counts[name] = installed
-    return counts, None
+    if res.returncode == 0:
+        for line in (res.stdout or "").splitlines():
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            repo = parts[0]
+            counts.setdefault(repo, 0)
+            if "[installed]" in line:
+                counts[repo] += 1
+    return counts, res
 
 
 @register_check(
-    FAST_CHECKS,
+    SLOW_CHECKS,
     check_id="pacman_inventory",
     category=CATEGORY,
     title="Package inventory",
     max_score=5,
+    lane="slow",
 )
 def check_pacman_inventory(*, conf_path=None, include_root=None, run=None):
     conf_path = Path(conf_path) if conf_path else PACMAN_CONF
@@ -757,6 +759,7 @@ def check_pacman_inventory(*, conf_path=None, include_root=None, run=None):
             applicable=False,
             score=0,
             max_score=5,
+            lane="slow",
             description="pacman is not installed; package inventory does not apply.",
             details=["pacman -Qq returned command-not-found."],
             refs=REFS_SIGNING,
@@ -767,8 +770,8 @@ def check_pacman_inventory(*, conf_path=None, include_root=None, run=None):
     foreign = [line.strip() for line in (foreign_res.stdout or "").splitlines() if line.strip()]
 
     repo_names = [repo["name"] for repo in parsed["repos"]] if parsed else []
-    counts, missing_pacman = _repo_installed_counts(run, repo_names)
-    if missing_pacman is not None and missing_pacman.returncode == 127:
+    counts, sl_res = _sl_installed_counts(run)
+    if sl_res.returncode == 127:
         return make_result(
             id="pacman_inventory",
             category=CATEGORY,
@@ -777,21 +780,18 @@ def check_pacman_inventory(*, conf_path=None, include_root=None, run=None):
             applicable=False,
             score=0,
             max_score=5,
+            lane="slow",
             description="pacman is not installed; package inventory does not apply.",
             details=["pacman -Sl returned command-not-found."],
             refs=REFS_SIGNING,
         )
     counts = counts or {}
 
-    omarchy_count = 0
-    for repo in (parsed["repos"] if parsed else []):
-        if repo["name"].lower() == "omarchy":
-            omarchy_count += counts.get(repo["name"], 0)
+    omarchy_count = sum(n for name, n in counts.items() if name.lower() == "omarchy")
 
     details = ["installed=" + str(len(installed))]
     for name in repo_names:
         details.append(name + "=" + str(counts.get(name, 0)))
-    details.append("omarchy=" + str(omarchy_count))
     details.append("foreign=" + str(len(foreign)))
     if foreign:
         shown = foreign[:20]
@@ -829,6 +829,7 @@ def check_pacman_inventory(*, conf_path=None, include_root=None, run=None):
         score=score,
         max_score=5,
         severity=severity,
+        lane="slow",
         description=desc,
         details=details,
         recommendation=rec,
