@@ -64,6 +64,12 @@ Scans all installed QML, JavaScript, Python, Shell, and TOML files in `~/.config
 Omarchy symlinks shipped skills into agent skill directories and `omarchy-agent` starts the default agent with approval prompts disabled. These checks inventory that unattended surface:
 - **Skills inventory (`agent_skills`, slow lane):** Counts Omarchy-shipped, vendor-shipped, and third-party skills across Claude, Codex, Cursor, Pi, and related roots. Marketplace plugins are inventoried as individual entries. Script, instruction, and config files use different rule sets; README/CHANGELOG/LICENSE and `references/`/`examples/`/`docs/` are skipped. Flags symlinks that point outside `$HOME`/`/usr/share/omarchy`, broken links, auto-approve flags (`--yolo`, `--allow-all`, `--dangerously-skip-permissions`) next to an agent binary, pipe-to-shell, writes to `~/.ssh` / shell rc / Omarchy hooks / `/etc`, and `curl`/`wget` to HTTP or a bare IPv4 address. Prompt-injection phrasing in markdown is LOW with no score deduction. Score deducts at most 2 hits per severity (CRITICAL 6, HIGH 3, MEDIUM 1).
 - **MCP, hooks, and permissions (`agent_mcp`):** Inventories MCP servers from Claude, Codex, Cursor, Gemini, OpenCode, and Copilot configs. Flags unpinned `npx`/`uvx`/`bunx`/`pipx run` stdio servers, credential-like env keys (key names only), non-https remote URLs, unrestricted `permissions.allow` Bash entries, and `enableAllProjectMcpServers`. Reports the default agent from `~/.config/omarchy/defaults/agent` and the auto-approve flag `omarchy-agent` launches it with.
+### 6. Package supply chain
+- **Repository trust:** Parses `/etc/pacman.conf` (and `/etc/pacman.d` SigLevel overrides) and flags network repos whose effective `SigLevel` contains `TrustAll`, `Never`, or package-level `Optional`. The Omarchy default is `Required DatabaseOptional`.
+- **Keyrings:** Checks `archlinux-keyring` / `omarchy-keyring` versions and whether Omarchy signing key `40DFB630FF42BCFFB047046CF0134EE680CAC571` is in the pacman keyring.
+- **Update recency:** Reads `/var/log/pacman.log` (no `pacman -Sy`) and recommends `omarchy update` when the last full upgrade is stale.
+- **Inventory (slow lane):** One local `pacman -Sl` plus foreign (`pacman -Qmq`) counts; a large foreign set is called out because unsigned local builds widen the supply chain.
+- **arch-audit (slow lane):** Optional CVE scan from the extra repo; missing tool or network failure is N/A, not a failed check.
 
 ---
 
@@ -163,6 +169,7 @@ omasecurity/
     │   ├── desktop.py
     │   ├── network.py
     │   └── agents.py
+    │   └── packages.py
     └── tests/          # Unit tests (fake files / patched subprocess)
 ```
 
