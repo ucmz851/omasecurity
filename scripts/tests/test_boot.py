@@ -20,6 +20,7 @@ from checks.boot import (  # noqa: E402
     check_boot_chain,
     check_disk_encryption,
     check_secure_boot,
+    reset_cache,
 )
 
 EFI_ATTR = bytes([0x07, 0x00, 0x00, 0x00])
@@ -219,6 +220,9 @@ def _lsblk_run(tree, virt="none", virt_rc=1, extra=None):
 
 
 class SecureBootTests(unittest.TestCase):
+    def setUp(self):
+        reset_cache()
+
     def test_not_applicable_without_efi(self):
         with tempfile.TemporaryDirectory() as tmp:
             missing = Path(tmp) / "no-efi"
@@ -292,8 +296,23 @@ class SecureBootTests(unittest.TestCase):
         self.assertTrue(any("bootctl" in line.lower() for line in result["details"]))
         self.assertTrue(any("sbctl" in line.lower() for line in result["details"]))
 
+    def test_unknown_state_is_not_applicable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            efi = Path(tmp) / "efi"
+            efi.mkdir()
+            (efi / "efivars").mkdir()
+            result = check_secure_boot(efi_dir=efi, run=fake_run({}))
+        self.assertFalse(result["applicable"])
+        self.assertFalse(result["passed"])
+        self.assertEqual(result["score"], 0)
+        self.assertEqual(result["severity"], "info")
+        self.assertEqual(result["description"], "Secure Boot state could not be determined")
+        self.assertTrue(any("bootctl status --no-pager" in line for line in result["details"]))
+
 
 class DiskEncryptionTests(unittest.TestCase):
+    def setUp(self):
+        reset_cache()
     def _paths(self, tmp, swaps=SWAPS_NONE, cmdline="", tpm=False, tpm_ver="2"):
         root = Path(tmp)
         swaps_path = root / "swaps"
@@ -383,6 +402,9 @@ class DiskEncryptionTests(unittest.TestCase):
 
 
 class BootChainTests(unittest.TestCase):
+    def setUp(self):
+        reset_cache()
+
     def test_not_applicable_without_efi(self):
         with tempfile.TemporaryDirectory() as tmp:
             missing = Path(tmp) / "no-efi"
@@ -449,10 +471,12 @@ class BootChainTests(unittest.TestCase):
                 lockdown_path=lockdown,
             )
         self.assertFalse(result["passed"])
-        self.assertEqual(result["score"], 0)  # 5 - 2 UKI - 2 ESP - 1 lockdown
-        self.assertEqual(result["severity"], "medium")
+        self.assertEqual(result["score"], 1)  # 5 - 2 UKI - 1 ESP - 1 lockdown
+        self.assertEqual(result["severity"], "low")
         self.assertIn("unified kernel image", result["description"].lower())
         self.assertTrue(any("limine is not installed" in line for line in result["details"]))
+        self.assertTrue(any("provisional" in line for line in result["details"]))
+        self.assertTrue(any("fmask=0022" in line for line in result["details"]))
 
     def test_uki_from_bootctl_type2(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -478,6 +502,39 @@ class BootChainTests(unittest.TestCase):
         self.assertTrue(result["passed"])
         self.assertEqual(result["score"], 5)
         self.assertTrue(any("ESP permissions skipped" in line for line in result["details"]))
+
+    def test_bootctl_status_memoized_across_checks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            efi = Path(tmp) / "efi"
+            efi.mkdir()
+            (efi / "efivars").mkdir()
+            presets = Path(tmp) / "mkinitcpio.d"
+            presets.mkdir()
+            (presets / "linux.preset").write_text(
+                'default_uki="/boot/EFI/Linux/omarchy.efi"\n'
+            )
+            lockdown = Path(tmp) / "lockdown"
+            lockdown.write_text("[integrity] none confidentiality\n")
+            run = fake_run(
+                {
+                    ("bootctl", "status"): BOOTCTL_STATUS_ENABLED,
+                    ("bootctl", "list"): BOOTCTL_LIST_TYPE1,
+                    ("findmnt",): (1, ""),
+                    ("pacman", "-Q", "limine"): "limine 9.0-1\n",
+                }
+            )
+            sb = check_secure_boot(efi_dir=efi, run=run)
+            chain = check_boot_chain(
+                efi_dir=efi,
+                run=run,
+                preset_dir=presets,
+                lockdown_path=lockdown,
+            )
+        status_calls = [argv for argv in run.calls if argv[:2] == ["bootctl", "status"]]
+        self.assertEqual(len(status_calls), 1)
+        self.assertTrue(sb["applicable"])
+        self.assertTrue(sb["passed"])
+        self.assertTrue(chain["applicable"])
 
 
 if __name__ == "__main__":

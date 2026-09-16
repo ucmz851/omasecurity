@@ -43,6 +43,14 @@ _HEADER_DUMP = (
     "sudo cryptsetup luksDump {device} | grep -E 'Version|PBKDF|Cipher|tpm2|fido2'"
 )
 
+# Secure Boot state is shared by secure_boot and boot_chain. Keyed by efi_dir.
+_STATE_CACHE = {}
+
+
+def reset_cache():
+    """Clear memoized Secure Boot state. Tests call this in setUp."""
+    _STATE_CACHE.clear()
+
 
 def _worst_severity(severities):
     worst = "info"
@@ -143,6 +151,10 @@ def _parse_bootctl_status(text):
 
 def _secure_boot_state(efi_dir, run):
     efi_dir = Path(efi_dir)
+    key = str(efi_dir)
+    cached = _STATE_CACHE.get(key)
+    if cached is not None:
+        return cached
     secure = _efivar_on(efi_dir / "efivars" / SECURE_BOOT_VAR)
     setup = _efivar_on(efi_dir / "efivars" / SETUP_MODE_VAR)
     used_bootctl = False
@@ -155,7 +167,9 @@ def _secure_boot_state(efi_dir, run):
                 secure = parsed_secure
             if setup is None:
                 setup = parsed_setup
-    return secure, setup, used_bootctl
+    result = (secure, setup, used_bootctl)
+    _STATE_CACHE[key] = result
+    return result
 
 
 def _sbctl_details(run, timeout=0.1):
@@ -398,20 +412,14 @@ def check_secure_boot(*, efi_dir=None, run=None, sbctl_timeout=0.1):
     details.extend(_sbctl_details(run, timeout=sbctl_timeout))
 
     if secure is None:
-        details.append(
-            "Secure Boot state unknown. Run: bootctl status --no-pager"
-        )
-        return make_result(
-            id="secure_boot",
-            category=CATEGORY,
-            title="UEFI Secure Boot",
-            passed=True,
-            score=10,
-            max_score=10,
-            description="Secure Boot state could not be determined from efivars or bootctl.",
-            details=details,
-            refs=SB_REFS,
-            lane="fast",
+        details.append("Run: bootctl status --no-pager")
+        return _na(
+            "secure_boot",
+            "UEFI Secure Boot",
+            10,
+            "Secure Boot state could not be determined",
+            details,
+            SB_REFS,
         )
 
     score = 10
@@ -691,8 +699,12 @@ def check_boot_chain(
         details.append(f"{mount} mount options: {options}")
         if not _ESP_RESTRICT.search(options.replace(" ", "")):
             issues.append(f"{mount} is mounted without root-only fmask/umask")
-            score -= 2
-            severities.append("medium")
+            score -= 1
+            severities.append("low")
+            details.append(
+                "ESP fmask/umask 0077 check is provisional "
+                f"(observed {mount} options: {options})."
+            )
             recs.append(f"Remount {mount} with fmask=0077,dmask=0077 so only root can read ESP files.")
         else:
             details.append(f"{mount} restricts file access with fmask/umask 0077.")
