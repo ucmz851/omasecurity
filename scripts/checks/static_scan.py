@@ -21,7 +21,7 @@ DEFAULT_RULES = [
         "id": "obfuscated_exec",
         "severity": "CRITICAL",
         "regex": re.compile(
-            r"(eval\s*\(|new\s+Function\s*\(|base64\s+-d\s*\|\s*(ba)?sh|exec\s*\(\s*bytes\.fromhex)",
+            r"(\beval\s*\(|new\s+Function\s*\(|base64\s+-d\s*\|\s*(ba)?sh|exec\s*\(\s*bytes\.fromhex)",
             re.IGNORECASE,
         ),
         "title": "Dynamic / Obfuscated Code Execution",

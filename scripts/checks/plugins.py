@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from . import FAST_CHECKS, make_result, register_check
@@ -19,6 +20,20 @@ def _self_plugin_dir():
     return Path(__file__).resolve().parents[2]
 
 
+def _plugin_manifest_id(plugin_dir):
+    path = Path(plugin_dir) / "manifest.json"
+    try:
+        data = json.loads(path.read_text(errors="ignore"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    value = data.get("id")
+    if value is None or value == "":
+        return None
+    return str(value)
+
+
 @register_check(
     FAST_CHECKS,
     check_id="plugins_deep",
@@ -26,9 +41,11 @@ def _self_plugin_dir():
     title="Shell Plugin Code Health & Safety",
     max_score=25,
 )
-def check_plugins_deep(*, plugins_dir=None, self_dir=None):
+def check_plugins_deep(*, plugins_dir=None, self_dir=None, self_id=None):
     plugins_dir = Path(plugins_dir) if plugins_dir else HOME / ".config" / "omarchy" / "plugins"
     self_dir = Path(self_dir).resolve() if self_dir else _self_plugin_dir()
+    if self_id is None:
+        self_id = _plugin_manifest_id(self_dir)
 
     if not plugins_dir.exists():
         return make_result(
@@ -60,9 +77,12 @@ def check_plugins_deep(*, plugins_dir=None, self_dir=None):
         if not plugin.is_dir() or plugin.name.startswith("."):
             continue
         try:
-            if plugin.resolve() == self_dir:
-                continue
+            resolved = plugin.resolve()
         except OSError:
+            continue
+        if resolved == self_dir:
+            continue
+        if self_id and _plugin_manifest_id(plugin) == self_id:
             continue
         scanned_plugins += 1
         items, n = scan_tree(
@@ -135,7 +155,10 @@ def check_plugins_deep(*, plugins_dir=None, self_dir=None):
         max_score=25,
         severity=severity,
         description=desc,
-        details=[f"plugins={scanned_plugins}", f"files={files_scanned}"],
+        details=[
+            f"{scanned_plugins} plugins scanned",
+            f"{files_scanned} files scanned",
+        ],
         recommendation=rec,
         refs=REFS,
         flagged_items=flagged_items,

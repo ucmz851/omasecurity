@@ -46,7 +46,11 @@ Panel {
     "System Security": "System",
     "Network": "Network",
     "Authentication": "Auth",
-    "Desktop Security": "Desktop"
+    "Desktop Security": "Desktop",
+    "Agent Surface": "Agents",
+    "Boot & Disk": "Boot",
+    "Packages": "Packages",
+    "Services": "Services"
   })
 
   readonly property var categoryList: {
@@ -325,8 +329,8 @@ Panel {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             iconText: ""
-            tooltipText: root.isScanning ? "Scanning system..." : "Rescan Now"
-            foreground: root.isScanning ? Color.accent : root.foreground
+            tooltipText: root.slowScanActive ? "Background scan running..." : (root.isScanning ? "Scanning system..." : "Rescan Now")
+            foreground: (root.isScanning || root.slowScanActive) ? Color.accent : root.foreground
             rotation: 0
             onClicked: root.refresh()
 
@@ -335,7 +339,7 @@ Panel {
               to: 360
               duration: 800
               loops: Animation.Infinite
-              running: root.isScanning
+              running: root.isScanning || root.slowScanActive
             }
           }
         }
@@ -365,7 +369,7 @@ Panel {
         }
 
         // ------------------ CATEGORY TABS ------------------
-        Row {
+        Flow {
           width: parent.width
           spacing: Style.space(6)
 

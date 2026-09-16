@@ -1,4 +1,4 @@
-"""PATH integrity and sudo NOPASSWD (id: privileges_path, weight 15).
+"""PATH integrity and sudo NOPASSWD (id: privileges_path, weight 8).
 
 Never calls sudo. `sudo -n -l` on this development host printed
 "sudo: a password is required" (and on systemd hosts that failed probe
@@ -25,13 +25,13 @@ NOPASSWD_HINT = "sudo -l | grep NOPASSWD"
     check_id="privileges_path",
     category="Authentication",
     title="Privilege Boundaries & PATH",
-    max_score=15,
+    max_score=8,
 )
 def check_privileges_and_path(*, path_value=None):
     path_value = os.environ.get("PATH", "") if path_value is None else path_value
     issues = []
     details = []
-    score = 15
+    score = 8
 
     for entry in path_value.split(":"):
         if entry in ("", "."):
@@ -70,7 +70,7 @@ def check_privileges_and_path(*, path_value=None):
         title="Privilege Boundaries & PATH",
         passed=passed,
         score=score,
-        max_score=15,
+        max_score=8,
         severity=severity,
         description=desc,
         details=details,
