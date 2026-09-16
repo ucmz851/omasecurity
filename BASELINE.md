@@ -85,9 +85,15 @@ row until the real check exists.
 
 ### Boot & Disk
 
+VM and container guests that lack LUKS still **fail** `disk_encryption`, but the finding is severity **low** and only deducts 5 of 15: the virtual disk is often already encrypted by the host or is disposable, so missing guest LUKS is less severe than an unencrypted laptop.
+
+LUKS header parameters (PBKDF, cipher, keyslot count, TPM2/FIDO2 tokens) need root and are **not** probed. The check prints the exact `cryptsetup luksDump` command instead.
+
 | id | category | weight | what is verified | pass condition | why it matters | applicable when | lane | references |
 | :--- | :--- | ---: | :--- | :--- | :--- | :--- | :--- | :--- |
-| _placeholder_ | Boot & Disk | — | _(agent fills)_ | _(agent fills)_ | _(agent fills)_ | _(agent fills)_ | fast? | — |
+| `secure_boot` | Boot & Disk | 10 | EFI Secure Boot and Setup Mode from efivars (`SecureBoot-` / `SetupMode-` GUID `8be4df61-93ca-11d2-aa0d-00e098032b8c`, value at byte 4); `bootctl status` fallback; optional `sbctl status` details | Secure Boot enabled and setup mode off. Disabled deducts 7 (HIGH); setup mode on deducts 3 (HIGH). No `fix_cmd` (wrong key enrollment can brick firmware) | Unsigned bootloaders and kernels can be replaced on the ESP | `/sys/firmware/efi` exists | fast | [UEFI/Secure Boot](https://wiki.archlinux.org/title/Unified_Extensible_Firmware_Interface/Secure_Boot), [sbctl](https://github.com/Foxboron/sbctl) |
+| `disk_encryption` | Boot & Disk | 15 | `lsblk -J` walk from `/` for `crypto_LUKS` ancestors; `/sys/block/dm-*/dm/uuid` `CRYPT-LUKS1/2`; unencrypted swap from `/proc/swaps` (zram skipped); TPM sysfs as details; `rd.luks.options` tpm2/fido2 tokens on the cmdline | LUKS2 root and no unencrypted disk/file swap. Unencrypted root: HIGH −15, or LOW −5 in a VM/container. LUKS1: MEDIUM −5. Unencrypted swap: MEDIUM −3 each | An unlocked disk is readable if the machine is stolen or the guest image is copied | `lsblk` is installed and a device is mounted at `/` | fast | [dm-crypt/Encrypting an entire system](https://wiki.archlinux.org/title/Dm-crypt/Encrypting_an_entire_system) |
+| `boot_chain` | Boot & Disk | 5 | UKI via `default_uki` in `/etc/mkinitcpio.d/*.preset` or `bootctl list` Type #2 / Linux Boot Manager; ESP `findmnt` fmask/umask 0077 on `/boot` or `/efi`; kernel lockdown vs Secure Boot; `pacman -Q limine` as details | UKI in use (else LOW −2); ESP root-only if separately mounted (else MEDIUM −2); lockdown is not `[none]` while Secure Boot is on (else LOW −1) | A split kernel+initramfs on an unsigned ESP is tamperable; world-readable ESP leaks UKIs | `/sys/firmware/efi` exists | fast | [Unified kernel image](https://wiki.archlinux.org/title/Unified_kernel_image), [kernel lockdown](https://docs.kernel.org/security/lockdown.html), [UEFI/Secure Boot](https://wiki.archlinux.org/title/Unified_Extensible_Firmware_Interface/Secure_Boot) |
 
 ### Services
 

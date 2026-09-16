@@ -60,6 +60,11 @@ Scans all installed QML, JavaScript, Python, Shell, and TOML files in `~/.config
 - **GnuPG Keyring:** Enforces `700` permissions on `~/.gnupg/`.
 - **Session Locking:** Verifies automated idle screen lock timeouts in `hypridle.conf` and `shell.json`.
 
+### 6. Boot & Disk
+- **UEFI Secure Boot:** Reads Secure Boot and Setup Mode from efivars (with a `bootctl status` fallback). Disabled Secure Boot or setup mode is a HIGH finding. There is no one-click enroll command; a bad key can brick firmware. See the [Arch wiki UEFI/Secure Boot](https://wiki.archlinux.org/title/Unified_Extensible_Firmware_Interface/Secure_Boot) page and [sbctl](https://github.com/Foxboron/sbctl).
+- **Disk encryption:** Walks `lsblk` from `/` for LUKS, flags LUKS1, and treats unencrypted swap (except zram) as MEDIUM. Unencrypted root on a VM/container is still a fail, but LOW, because the host or hypervisor often already encrypts the disk. LUKS headers are not dumped (needs root); details include the exact `cryptsetup luksDump` command.
+- **Boot chain:** Checks for a unified kernel image, ESP `fmask`/`umask` 0077, and kernel lockdown vs Secure Boot. Omarchy hardware uses limine, a UKI under `/boot/EFI/Linux/omarchy*.efi`, and a systemd initramfs with `sd-encrypt`. EFI-only checks are N/A on this ARM VM.
+
 ---
 
 ## User Interface & Features
@@ -156,7 +161,8 @@ omasecurity/
     │   ├── privileges.py
     │   ├── keys.py
     │   ├── desktop.py
-    │   └── network.py
+    │   ├── network.py
+    │   └── boot.py
     └── tests/          # Unit tests (fake files / patched subprocess)
 ```
 
