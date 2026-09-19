@@ -28,22 +28,45 @@ Panel {
   property string statusLabel: "Scanning..."
   property string statusColor: "normal"
   property int failedCount: 0
+  property int naCount: 0
   property int totalChecks: 0
   property var audits: []
   property string lastScanTime: ""
   property bool isScanning: false
+  property bool slowScanActive: false
   property string selectedCategoryKey: "all"
   property string copiedNotice: ""
 
   property int cursorIndex: 0
 
-  readonly property var categoryList: [
-    { label: "All", key: "all" },
-    { label: "Plugins", key: "Plugin Health" },
-    { label: "System", key: "System Security" },
-    { label: "Network", key: "Network" },
-    { label: "Auth", key: "Authentication" }
-  ]
+  readonly property string auditScriptPath: Qt.resolvedUrl("scripts/audit.py").toString().replace(/^file:\/\//, "")
+
+  readonly property var categoryShortNames: ({
+    "Plugin Health": "Plugins",
+    "System Security": "System",
+    "Network": "Network",
+    "Authentication": "Auth",
+    "Desktop Security": "Desktop",
+    "Agent Surface": "Agents",
+    "Boot & Disk": "Boot",
+    "Packages": "Packages",
+    "Services": "Services"
+  })
+
+  readonly property var categoryList: {
+    var list = [{ label: "All", key: "all" }]
+    var seen = {}
+    var items = root.audits
+    if (!items || items.length === 0) return list
+    for (var i = 0; i < items.length; i++) {
+      var cat = items[i].category
+      if (!cat || seen[cat]) continue
+      seen[cat] = true
+      var shortName = root.categoryShortNames[cat]
+      list.push({ label: shortName ? shortName : cat, key: cat })
+    }
+    return list
+  }
 
   readonly property var filteredAudits: {
     if (!audits || audits.length === 0) return []
@@ -79,9 +102,15 @@ Panel {
   }
 
   function refresh() {
-    if (auditProc.running) return
+    if (auditProc.running || slowProc.running || root.slowScanActive) return
     isScanning = true
     auditProc.running = true
+  }
+
+  function runSlow() {
+    if (auditProc.running || slowProc.running || root.slowScanActive) return
+    root.slowScanActive = true
+    slowProc.running = true
   }
 
   function parseAuditOutput(text) {
@@ -93,9 +122,10 @@ Panel {
       root.statusLabel = data.statusLabel || "System Hardened"
       root.statusColor = data.statusColor || "normal"
       root.failedCount = data.failedCount || 0
+      root.naCount = data.naCount || 0
       root.totalChecks = data.totalChecks || 0
       root.audits = data.audits || []
-      root.lastScanTime = data.timestamp || ""
+      root.lastScanTime = data.timestampDisplay || data.timestamp || ""
     } catch (e) {
       console.log("omasecurity JSON parse error:", e)
     }
@@ -123,6 +153,25 @@ Panel {
   }
 
   Timer {
+    id: slowOnceTimer
+    interval: 10000
+    running: true
+    repeat: false
+    onTriggered: {
+      root.runSlow()
+      slowHourlyTimer.start()
+    }
+  }
+
+  Timer {
+    id: slowHourlyTimer
+    interval: 3600000
+    running: false
+    repeat: true
+    onTriggered: root.runSlow()
+  }
+
+  Timer {
     id: noticeTimer
     interval: 2500
     running: false
@@ -132,7 +181,7 @@ Panel {
 
   Process {
     id: auditProc
-    command: ["python3", Qt.resolvedUrl("scripts/audit.py").toString().replace(/^file:\/\//, "")]
+    command: ["python3", root.auditScriptPath]
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: root.parseAuditOutput(text)
@@ -143,6 +192,22 @@ Panel {
     }
     onExited: function(exitCode) {
       root.isScanning = false
+    }
+  }
+
+  Process {
+    id: slowProc
+    command: ["python3", root.auditScriptPath, "--slow"]
+    stdout: StdioCollector {
+      waitForEnd: true
+    }
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: if (text) console.log("omasecurity slow stderr:", text)
+    }
+    onExited: function(exitCode) {
+      root.slowScanActive = false
+      root.refresh()
     }
   }
 
@@ -264,8 +329,8 @@ Panel {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             iconText: ""
-            tooltipText: root.isScanning ? "Scanning system..." : "Rescan Now"
-            foreground: root.isScanning ? Color.accent : root.foreground
+            tooltipText: root.slowScanActive ? "Background scan running..." : (root.isScanning ? "Scanning system..." : "Rescan Now")
+            foreground: (root.isScanning || root.slowScanActive) ? Color.accent : root.foreground
             rotation: 0
             onClicked: root.refresh()
 
@@ -274,7 +339,7 @@ Panel {
               to: 360
               duration: 800
               loops: Animation.Infinite
-              running: root.isScanning
+              running: root.isScanning || root.slowScanActive
             }
           }
         }
@@ -304,7 +369,7 @@ Panel {
         }
 
         // ------------------ CATEGORY TABS ------------------
-        Row {
+        Flow {
           width: parent.width
           spacing: Style.space(6)
 
@@ -385,8 +450,9 @@ Panel {
             radius: Style.cornerRadius
 
             readonly property bool hasCursor: root.cursorIndex === index
-            readonly property bool isPassed: modelData.passed === true
-            readonly property color cardBorderColor: isPassed ? root.foreground : (modelData.score === 0 ? root.urgent : Color.accent)
+            readonly property bool isNA: modelData.applicable === false || modelData.pending === true
+            readonly property bool isPassed: !isNA && modelData.passed === true
+            readonly property color cardBorderColor: isNA ? root.dim : (isPassed ? root.foreground : (modelData.score === 0 ? root.urgent : Color.accent))
 
             color: hasCursor ? Style.hoverFillFor(root.foreground, root.foreground) : "transparent"
             borderSpec: hasCursor
@@ -411,8 +477,8 @@ Panel {
                   id: statusIcon
                   anchors.left: parent.left
                   anchors.verticalCenter: parent.verticalCenter
-                  text: itemCard.isPassed ? "" : ""
-                  color: itemCard.isPassed ? Color.accent : (modelData.score === 0 ? root.urgent : Color.accent)
+                  text: itemCard.isNA ? "–" : (itemCard.isPassed ? "" : "")
+                  color: itemCard.isNA ? root.dim : (itemCard.isPassed ? Color.accent : (modelData.score === 0 ? root.urgent : Color.accent))
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   font.bold: true
@@ -431,8 +497,8 @@ Panel {
                     textFormat: Text.PlainText
                     id: scoreText
                     anchors.centerIn: parent
-                    text: (itemCard.isPassed ? "+" : "") + modelData.score + "/" + modelData.max_score + " pts"
-                    color: itemCard.isPassed ? root.dim : (modelData.score === 0 ? root.urgent : Color.accent)
+                    text: itemCard.isNA ? "N/A" : ((itemCard.isPassed ? "+" : "") + modelData.score + "/" + modelData.max_score + " pts")
+                    color: itemCard.isNA ? root.dim : (itemCard.isPassed ? root.dim : (modelData.score === 0 ? root.urgent : Color.accent))
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
                     font.bold: true
@@ -465,6 +531,19 @@ Panel {
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
                 wrapMode: Text.Wrap
+              }
+
+              Repeater {
+                model: modelData.details || []
+                delegate: Text {
+                  textFormat: Text.PlainText
+                  width: cardColumn.width
+                  text: modelData
+                  color: root.dim
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.caption
+                  wrapMode: Text.Wrap
+                }
               }
 
               // Flagged Plugin Deep Findings (if present)
