@@ -84,7 +84,7 @@ Scans every QML, JavaScript, Python, shell, JSON, and TOML file under `~/.config
 
 ### Agent Surface
 Omarchy links its shipped skills into `~/.agents/skills`, `~/.claude/skills`, `~/.codex/skills`, and `~/.pi/agent/skills`, then `omarchy-agent` launches the default agent with approval prompts disabled. Everything in those trees runs unattended, so it gets inventoried.
-- **Skills inventory (`agent_skills`, slow lane):** counts Omarchy-shipped, vendor-shipped, and third-party skills across Claude, Codex, Cursor, Pi, and marketplace plugins. Scripts, instruction files, and configs each get their own rule set; README, CHANGELOG, LICENSE, and `references/`, `examples/`, `docs/` directories are skipped. Flags symlinks that leave `$HOME` and `/usr/share/omarchy`, broken links, auto-approve flags next to an agent binary, pipe-to-shell, writes to `~/.ssh`, shell rc files, Omarchy hooks, or `/etc`, and downloads over HTTP or from a bare IP. Prompt-injection phrasing in markdown is reported as LOW with no deduction. At most two hits per severity count against the score.
+- **Skills inventory (`agent_skills`, slow lane):** counts Omarchy-shipped, vendor-shipped, and third-party skills across Claude, Codex, Cursor, Pi, and marketplace plugins. Scripts, instruction files, and configs each get their own rule set; README, CHANGELOG, LICENSE, and `references/`, `examples/`, `docs/` directories are skipped. Flags symlinks that leave `$HOME` and `/usr/share/omarchy`, broken links, auto-approve flags next to an agent binary, pipe-to-shell, writes to `~/.ssh`, shell rc files, Omarchy hooks, or `/etc`, and downloads over HTTP or from a bare IP. Prompt-injection phrasing in markdown is reported as LOW with no deduction; phrases quoted as examples or surrounded by defensive wording are not flagged, so guidance that warns about injection does not read as injection. `python -c` counts as obfuscation only when its inline payload decodes or executes. Findings report the path actually scanned, so marketplace hits point at `<marketplace>/plugins/<plugin>/...` rather than a `marketplace:plugin` label. At most two hits per severity count against the score.
 - **MCP, hooks, and permissions (`agent_mcp`):** reads the Claude, Codex, Cursor, Gemini, OpenCode, and Copilot configs. Flags unpinned `npx`, `uvx`, `bunx`, and `pipx run` servers, credential-like env values (key names only, never values), non-https remote URLs, unrestricted `Bash` permission allowlists, and `enableAllProjectMcpServers`. Reports the default agent and the auto-approve flag it is launched with.
 
 ### Packages
@@ -191,7 +191,7 @@ omasecurity/
     ├── checks/
     │   ├── __init__.py  # Result contract, registries, run_cmd (refuses sudo)
     │   ├── registry.py  # One import line per check module
-    │   ├── cache.py     # Slow-lane cache under $XDG_CACHE_HOME/omasecurity
+    │   ├── cache.py     # Slow-lane cache under $XDG_CACHE_HOME/omasecurity (0600, O_NOFOLLOW)
     │   ├── static_scan.py
     │   ├── plugins.py
     │   ├── firewall.py

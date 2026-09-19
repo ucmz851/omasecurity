@@ -44,7 +44,8 @@ def write_cached(check_id, result):
         "written_at": datetime.now(timezone.utc).isoformat(),
         "result": result,
     }
-    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+    fd = os.open(str(path), flags, 0o600)
     try:
         os.fchmod(fd, 0o600)
     except Exception:

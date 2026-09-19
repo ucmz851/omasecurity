@@ -247,6 +247,26 @@ class CacheTests(unittest.TestCase):
         path.write_text(json.dumps(payload))
         self.assertIsNone(read_cached("slow_demo", max_age_s=7200))
 
+    def test_cache_write_refuses_symlink(self):
+        """O_NOFOLLOW: a planted symlink must not redirect the cache write."""
+        from checks.cache import cache_dir
+
+        stored = make_result(
+            id="slow_sym", category="T", title="Slow", description="done",
+            score=4, max_score=4, lane="slow",
+        )
+        directory = cache_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        outside = directory.parent / "outside.json"
+        outside.write_text("{}")
+        link = directory / "slow_sym.json"
+        if link.exists() or link.is_symlink():
+            link.unlink()
+        link.symlink_to(outside)
+        with self.assertRaises(OSError):
+            write_cached("slow_sym", stored)
+        self.assertEqual(outside.read_text(), "{}")
+
     def test_pending_when_cache_missing(self):
         slow = _fn("slow_demo", lane="slow", score=4, max_score=4)
         audits, _ = audit.collect_results(
