@@ -69,7 +69,7 @@ PROMPT_INJECTION = {
     "severity": "LOW",
     "regex": re.compile(
         r"ignore (all )?(previous|prior|above) instructions"
-        r"|do not (tell|inform|show) the user"
+        r"|do not (tell|inform|show) the user(?!\s+to\s)"
         r"|without (telling|asking) the user"
         r"|exfiltrat",
         re.IGNORECASE,
@@ -109,12 +109,21 @@ INSECURE_FETCH = {
     "title": "curl/wget to a bare IPv4 address or non-https URL",
     "explanation": "Downloads from cleartext HTTP or a literal IP address.",
 }
+# `python -c` on its own is ordinary shell glue (version probes, path lookups).
+# Only treat it as obfuscation when the inline payload decodes or executes.
+_OBFUSCATED_PAYLOAD = (
+    r"base64|b64decode|b64encode|exec\s*\(|eval\s*\(|compile\s*\("
+    r"|__import__|marshal|pickle|fromhex|codecs\.decode|\.decode\s*\("
+)
 SKILL_OBFUSCATION = {
     "id": "skill_obfuscation",
     "severity": "MEDIUM",
-    "regex": re.compile(r"base64\s+-d\b|python(?:3)?\s+-c\b", re.IGNORECASE),
+    "regex": re.compile(
+        r"base64\s+-d\b|python(?:3)?\s+-c\b[^\n]*(?:%s)" % _OBFUSCATED_PAYLOAD,
+        re.IGNORECASE,
+    ),
     "title": "Obfuscated or inline code in a skill script",
-    "explanation": "Skill script uses base64 -d or python -c.",
+    "explanation": "Skill script uses base64 -d, or python -c with a decoding or exec payload.",
 }
 
 # Scripts: DEFAULT_RULES plus agent extras, but obfuscated_exec is MEDIUM here.
@@ -298,14 +307,32 @@ def _rules_for(filepath, skill_dir, root_rel):
     return None
 
 
-def _format_items(items, skill_name, root_label):
+def _entry_display(entry, home):
+    """Display a skill entry by its own location, without resolving symlinks."""
+    entry = Path(entry)
+    try:
+        return "~/" + str(entry.relative_to(Path(home)))
+    except ValueError:
+        return str(entry)
+
+
+def _format_items(items, skill_name, base_path, home):
+    """Build each finding's path from the directory actually scanned.
+
+    skill_name is a label ("marketplace:plugin" under .claude/plugins/
+    marketplaces), so joining it onto the root produced a path that does not
+    exist on disk. base_path is the real scanned target.
+    """
+    base = Path(base_path)
+    is_dir = base.is_dir()
     kept = []
     for item in items:
         rel = item["file"]
+        full = base / rel if is_dir else base
         kept.append(
             _flag(
                 skill_name,
-                "%s/%s/%s" % (root_label, skill_name, rel),
+                _display(full, home),
                 item["severity"],
                 item["title"],
                 item["explanation"],
@@ -320,6 +347,66 @@ def _inside_string_literal(line, index):
     """Odd quotes before index means the match sits inside a same-line string."""
     prefix = line[:index]
     return (prefix.count("'") + prefix.count('"')) % 2 == 1
+
+
+_QUOTE_CHARS = "\"'`\u201c\u201d\u2018\u2019"
+
+# Prose that cites an injection phrase in order to defend against it.
+_DEFENSIVE_RE = re.compile(
+    r"never follow|do not follow|don't follow|ignore such|disregard such"
+    r"|refuse|reject|do not comply|must not|should not|don't go along"
+    r"|prompt.?injection|injection attempt|treat .{0,20}as data"
+    r"|untrusted|attacker|malicious|adversar",
+    re.IGNORECASE,
+)
+
+
+def _is_cited(line, start, end):
+    """True when the matched phrase is wrapped in quotes, i.e. quoted as an example."""
+    before = line[start - 1] if start > 0 else ""
+    after = line[end] if end < len(line) else ""
+    return before in _QUOTE_CHARS and after in _QUOTE_CHARS
+
+
+def _suppress_injection(line, match):
+    """Skip injection phrasing that is being quoted or warned about, not issued."""
+    if _is_cited(line, match.start(), match.end()):
+        return True
+    return bool(_DEFENSIVE_RE.search(line))
+
+
+_TRIPLE_RE = re.compile(r'"""|\'\'\'')
+
+
+def _docstring_mask(lines):
+    """Mark lines that sit inside a Python triple-quoted block.
+
+    Prose in a docstring is documentation, not executed code; the line-leading
+    comment skip cannot see it because the block opens on an earlier line.
+    """
+    mask = [False] * len(lines)
+    delim = None
+    for i, line in enumerate(lines):
+        if delim is None:
+            pos = 0
+            opened = None
+            while True:
+                found = _TRIPLE_RE.search(line, pos)
+                if not found:
+                    break
+                token = found.group(0)
+                if opened is None:
+                    opened = token
+                elif token == opened:
+                    opened = None
+                pos = found.end()
+            # The opening line may hold real code before the quotes, so scan it.
+            delim = opened
+        else:
+            mask[i] = True
+            if delim in line:
+                delim = None
+    return mask
 
 
 def _apply_rules(filepath, rel, rules, max_bytes):
@@ -337,6 +424,11 @@ def _apply_rules(filepath, rel, rules, max_bytes):
     except Exception:
         return [], 0
     flagged = []
+    in_docstring = (
+        _docstring_mask(lines)
+        if filepath.suffix.lower() == ".py"
+        else [False] * len(lines)
+    )
     for line_no, line in enumerate(lines, 1):
         sline = line.strip()
         if (
@@ -346,12 +438,18 @@ def _apply_rules(filepath, rel, rules, max_bytes):
             or sline.startswith("/*")
         ):
             continue
+        if in_docstring[line_no - 1]:
+            continue
         for rule in rules:
             match = rule["regex"].search(line)
             if not match:
                 continue
             if rule.get("id") == "obfuscated_exec" and _inside_string_literal(
                 line, match.start()
+            ):
+                continue
+            if rule.get("id") == "prompt_injection" and _suppress_injection(
+                line, match
             ):
                 continue
             snippet = (
@@ -580,7 +678,7 @@ def check_agent_skills(*, home=None):
                 flagged.append(
                     _flag(
                         name,
-                        root_label + "/" + name,
+                        _entry_display(entry, home),
                         "HIGH",
                         "skill symlink points outside home and Omarchy",
                         "Top-level skill symlink resolves outside $HOME and /usr/share/omarchy.",
@@ -591,7 +689,7 @@ def check_agent_skills(*, home=None):
                 flagged.append(
                     _flag(
                         name,
-                        root_label + "/" + name,
+                        _entry_display(entry, home),
                         "MEDIUM",
                         "Broken skill symlink",
                         "Top-level skill entry is a symlink whose target does not exist.",
@@ -602,7 +700,7 @@ def check_agent_skills(*, home=None):
             if scan_path is not None and remaining > 0:
                 items, n = _scan_entry(scan_path, remaining, rel)
                 remaining -= n
-                flagged.extend(_format_items(items, name, root_label))
+                flagged.extend(_format_items(items, name, scan_path, home))
         per_root.append("%s: %d" % (root_label, count))
 
     flagged = _dedupe_flags(flagged)
